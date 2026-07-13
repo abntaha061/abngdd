@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Main Drop Shadow -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M34,26 h40 a4,4 0 0 1 4,4 v50 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-50 a4,4 0 0 1 4,-4" />
+    <!-- White Paper Page -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,24 h40 a4,4 0 0 1 4,4 v50 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-50 a4,4 0 0 1 4,-4" />
+    <!-- Red Header Badge -->
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M28,28 a4,4 0 0 1 4,-4 h40 v14 h-44 z" />
+    <!-- PDF Text Lines or Design on document -->
+    <!-- Document lines in grey -->
+    <path
+        android:fillColor="#B0BEC5"
+        android:pathData="M36,46 h36 v3 h-36 z M36,54 h36 v3 h-36 z M36,62 h24 v3 h-24 z" />
+    <!-- Red Accent "PDF" Text Badge in the center bottom -->
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M36,69 h36 v10 a2,2 0 0 1 -2,2 h-32 a2,2 0 0 1 -2,-2 z" />
+    <!-- White lines inside the PDF text badge -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,73 h4 v2 h-4 z M48,73 h4 v2 h-4 z M56,73 h8 v2 h-8 z" />
+</vector>

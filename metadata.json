@@ -1,0 +1,6 @@
+{
+  "name": "قارئ PDF",
+  "description": "تطبيق قارئ ومستعرض ملفات PDF حديث ومميز باستخدام pdf.js",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
