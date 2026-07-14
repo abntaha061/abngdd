@@ -833,7 +833,13 @@ class PdfWebViewState {
     fun nextPage() {
         webView?.post {
             webView?.evaluateJavascript(
-                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.nextPage(); });",
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.nextPage();
+                    }
+                })();
+                """.trimIndent(),
                 null
             )
         }
@@ -842,7 +848,13 @@ class PdfWebViewState {
     fun prevPage() {
         webView?.post {
             webView?.evaluateJavascript(
-                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.previousPage(); });",
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.previousPage();
+                    }
+                })();
+                """.trimIndent(),
                 null
             )
         }
@@ -851,7 +863,13 @@ class PdfWebViewState {
     fun zoomIn() {
         webView?.post {
             webView?.evaluateJavascript(
-                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.currentScale += 0.25; });",
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.currentScale += 0.25;
+                    }
+                })();
+                """.trimIndent(),
                 null
             )
         }
@@ -860,7 +878,13 @@ class PdfWebViewState {
     fun zoomOut() {
         webView?.post {
             webView?.evaluateJavascript(
-                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.currentScale = Math.max(0.25, PDFViewerApplication.pdfViewer.currentScale - 0.25); });",
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.currentScale = Math.max(0.25, window.PDFViewerApplication.pdfViewer.currentScale - 0.25);
+                    }
+                })();
+                """.trimIndent(),
                 null
             )
         }
@@ -869,7 +893,13 @@ class PdfWebViewState {
     fun openFindBar() {
         webView?.post {
             webView?.evaluateJavascript(
-                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.findBar.open(); });",
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.findBar) {
+                        window.PDFViewerApplication.findBar.toggle();
+                    }
+                })();
+                """.trimIndent(),
                 null
             )
         }
@@ -1087,24 +1117,32 @@ fun PdfWebView(
                         super.onPageFinished(view, url)
                         view?.evaluateJavascript(
                             """
-                            PDFViewerApplication.initializedPromise.then(() => {
-                                PDFViewerApplication.eventBus.on('pagechanging', (e) => {
-                                    AndroidBridge.onPageChanged(e.pageNumber, e.pagesCount);
-                                });
-                                PDFViewerApplication.eventBus.on('pagesinit', () => {
-                                    AndroidBridge.onPageChanged(
-                                        PDFViewerApplication.pdfViewer.currentPageNumber,
-                                        PDFViewerApplication.pagesCount
-                                    );
-                                });
-                                // Fallback if pages are already initialized
-                                if (PDFViewerApplication.pdfViewer && PDFViewerApplication.pdfViewer.pagesCount > 0) {
-                                    AndroidBridge.onPageChanged(
-                                        PDFViewerApplication.pdfViewer.currentPageNumber,
-                                        PDFViewerApplication.pdfViewer.pagesCount
-                                    );
+                            (function() {
+                                function init() {
+                                    if (window.PDFViewerApplication && window.PDFViewerApplication.initializedPromise) {
+                                        window.PDFViewerApplication.initializedPromise.then(() => {
+                                            window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
+                                                AndroidBridge.onPageChanged(e.pageNumber, window.PDFViewerApplication.pagesCount || 1);
+                                            });
+                                            window.PDFViewerApplication.eventBus.on('pagesinit', () => {
+                                                AndroidBridge.onPageChanged(
+                                                    window.PDFViewerApplication.pdfViewer.currentPageNumber || 1,
+                                                    window.PDFViewerApplication.pagesCount || 1
+                                                );
+                                            });
+                                            if (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pagesCount > 0) {
+                                                AndroidBridge.onPageChanged(
+                                                    window.PDFViewerApplication.pdfViewer.currentPageNumber || 1,
+                                                    window.PDFViewerApplication.pagesCount || 1
+                                                );
+                                            }
+                                        });
+                                    } else {
+                                        setTimeout(init, 50);
+                                    }
                                 }
-                            });
+                                init();
+                            })();
                             """.trimIndent(),
                             null
                         )

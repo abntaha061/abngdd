@@ -1,11 +1,82 @@
-.toolbar {
-    display: none;
+/* Complete override to hide default PDF.js toolbar elements while preserving find/search functionality */
+
+/* Hide all default toolbar controls */
+#toolbarViewerLeft > *:not(.toolbarButtonWithContainer),
+#toolbarViewerMiddle,
+#toolbarViewerRight,
+#sidebarContainer,
+#sidebarResizer {
+    display: none !important;
 }
 
+/* Hide the find button inside the container */
+#viewFindButton {
+    display: none !important;
+}
+
+/* Make the toolbar container completely transparent and take 0 height */
+.toolbar, #toolbarContainer {
+    background-color: transparent !important;
+    background-image: none !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+    height: 0px !important;
+    min-height: 0px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    position: relative !important;
+}
+
+/* Shift the PDF viewer container to the very top */
 #viewerContainer {
-    --visible-toolbar-height: 0px;
+    top: 0px !important;
+    bottom: 0px !important;
+    --visible-toolbar-height: 0px !important;
 }
 
+/* Beautiful custom floating findbar styling */
+#findbar {
+    position: absolute !important;
+    top: 12px !important;
+    right: 12px !important;
+    left: auto !important; /* Let it float naturally or anchor to top right/left */
+    background-color: #2b2b2b !important; /* Elegant dark card background */
+    color: #ffffff !important;
+    border: 1px solid #444444 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+    padding: 12px !important;
+    z-index: 99999 !important;
+    max-width: 90vw !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    font-family: inherit !important;
+}
+
+/* Force hide when hidden class is present */
+#findbar.hidden {
+    display: none !important;
+}
+
+/* Input field inside findbar */
+#findInput {
+    background-color: #3d3d3d !important;
+    color: #ffffff !important;
+    border: 1px solid #555555 !important;
+    border-radius: 4px !important;
+    padding: 6px 8px !important;
+    width: 200px !important;
+}
+
+/* Text and Labels inside findbar */
+#findbar label, #findbar span, .toolbarLabel {
+    color: #e0e0e0 !important;
+    font-size: 12px !important;
+}
+
+/* Selection colors */
 #viewer ::selection {
     background: var(--selection-color, rgba(0 0 255 / 0.25));
 }
