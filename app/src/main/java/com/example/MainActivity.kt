@@ -10,6 +10,9 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.JavascriptInterface
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -47,6 +50,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -54,7 +59,10 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -68,6 +76,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -98,6 +107,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.webkit.WebViewAssetLoader
 import com.example.data.AppDatabase
 import com.example.data.PdfRepository
@@ -109,15 +119,52 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private lateinit var viewModel: PdfViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Pre-create WebView Code Cache directories to prevent Chromium error logs
+        try {
+            val codeCacheJsDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
+            val codeCacheWasmDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
+            if (!codeCacheJsDir.exists()) {
+                codeCacheJsDir.mkdirs()
+            }
+            if (!codeCacheWasmDir.exists()) {
+                codeCacheWasmDir.mkdirs()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Copy sample.pdf from assets to cache directory on start
+        val pdfCacheDir = File(filesDir, "pdf_cache").apply {
+            if (!exists()) {
+                mkdirs()
+            }
+        }
+        val destFile = File(pdfCacheDir, "sample.pdf")
+        if (!destFile.exists()) {
+            try {
+                assets.open("sample/sample.pdf").use { inputStream ->
+                    destFile.outputStream().use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
 
         // Room and Repo initialisation
         val database = AppDatabase.getDatabase(applicationContext)
         val repository = PdfRepository(database.recentPdfDao())
         val factory = PdfViewModelFactory(repository)
-        val viewModel: PdfViewModel by viewModels { factory }
+        viewModel = ViewModelProvider(this, factory)[PdfViewModel::class.java]
+
+        handleIntent(intent)
 
         setContent {
             MyApplicationTheme {
@@ -143,6 +190,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         PdfReaderScreen(
                             pdf = currentPdf!!,
+                            viewModel = viewModel,
                             onBack = { viewModel.resetCurrentPdf() },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -186,6 +234,21 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent != null && intent.action == Intent.ACTION_VIEW) {
+            val uri = intent.data
+            if (uri != null) {
+                viewModel.importLocalPdf(this, uri)
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -201,7 +264,7 @@ fun HomeDashboard(
 
     // Set up file picker launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             viewModel.importLocalPdf(context, it)
@@ -283,7 +346,7 @@ fun HomeDashboard(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("import_card")
-                        .clickable { filePickerLauncher.launch("application/pdf") },
+                        .clickable { filePickerLauncher.launch(arrayOf("application/pdf")) },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -417,6 +480,25 @@ fun HomeDashboard(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
+                        SamplePdfRow(
+                            title = "الملف التجريبي المضمن (sample.pdf)",
+                            onClick = {
+                                val pdfCacheDir = File(context.filesDir, "pdf_cache")
+                                val sampleFile = File(pdfCacheDir, "sample.pdf")
+                                if (sampleFile.exists()) {
+                                    viewModel.viewRecentPdf(context, RecentPdf(
+                                        title = "الملف التجريبي المضمن (sample.pdf)",
+                                        sourceUriOrUrl = "sample.pdf",
+                                        cachedFilePath = sampleFile.absolutePath,
+                                        fileSize = sampleFile.length(),
+                                        timestamp = System.currentTimeMillis()
+                                    ))
+                                } else {
+                                    Toast.makeText(context, "لم يتم العثور على الملف التجريبي", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
                         SamplePdfRow(
                             title = "دليل البدء السريع (DUMMY PDF)",
                             onClick = {
@@ -631,14 +713,202 @@ fun RecentPdfItem(
     }
 }
 
+@Composable
+fun PdfBottomBar(
+    currentPage: Int,
+    totalPages: Int,
+    onPrevPage: () -> Unit,
+    onNextPage: () -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onSearchClicked: () -> Unit,
+    onOpenFileClicked: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Open File Button
+            IconButton(
+                onClick = onOpenFileClicked,
+                modifier = Modifier.testTag("bottom_open_file")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileOpen,
+                    contentDescription = "فتح ملف",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Zoom Out Button
+            IconButton(
+                onClick = onZoomOut,
+                modifier = Modifier.testTag("bottom_zoom_out")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ZoomOut,
+                    contentDescription = "تصغير",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            // Zoom In Button
+            IconButton(
+                onClick = onZoomIn,
+                modifier = Modifier.testTag("bottom_zoom_in")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ZoomIn,
+                    contentDescription = "تكبير",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            // Page Navigation (Prev - Number - Next)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                IconButton(
+                    onClick = onPrevPage,
+                    enabled = currentPage > 1,
+                    modifier = Modifier.testTag("bottom_prev_page")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "الصفحة السابقة",
+                        tint = if (currentPage > 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                }
+
+                Text(
+                    text = "$currentPage / $totalPages",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 4.dp).testTag("bottom_page_number")
+                )
+
+                IconButton(
+                    onClick = onNextPage,
+                    enabled = currentPage < totalPages,
+                    modifier = Modifier.testTag("bottom_next_page")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "الصفحة التالية",
+                        tint = if (currentPage < totalPages) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                }
+            }
+
+            // Search Button
+            IconButton(
+                onClick = onSearchClicked,
+                modifier = Modifier.testTag("bottom_search")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "بحث",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+class PdfWebViewState {
+    var webView: WebView? = null
+
+    fun nextPage() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.nextPage(); });",
+                null
+            )
+        }
+    }
+
+    fun prevPage() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.previousPage(); });",
+                null
+            )
+        }
+    }
+
+    fun zoomIn() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.currentScale += 0.25; });",
+                null
+            )
+        }
+    }
+
+    fun zoomOut() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.pdfViewer.currentScale = Math.max(0.25, PDFViewerApplication.pdfViewer.currentScale - 0.25); });",
+                null
+            )
+        }
+    }
+
+    fun openFindBar() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                "PDFViewerApplication.initializedPromise.then(() => { PDFViewerApplication.findBar.open(); });",
+                null
+            )
+        }
+    }
+}
+
+class AndroidBridge(
+    private val onPageChanged: (page: Int, total: Int) -> Unit
+) {
+    private val handler = Handler(Looper.getMainLooper())
+
+    @JavascriptInterface
+    fun onPageChanged(page: Int, total: Int) {
+        handler.post {
+            onPageChanged(page, total)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfReaderScreen(
     pdf: RecentPdf,
+    viewModel: PdfViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var currentPage by remember { mutableStateOf(1) }
+    var totalPages by remember { mutableStateOf(1) }
+    val webViewState = remember { PdfWebViewState() }
+
+    val readerFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.importLocalPdf(context, it)
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -689,20 +959,81 @@ fun PdfReaderScreen(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             )
+        },
+        bottomBar = {
+            PdfBottomBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPrevPage = {
+                    webViewState.prevPage()
+                },
+                onNextPage = {
+                    webViewState.nextPage()
+                },
+                onZoomIn = {
+                    webViewState.zoomIn()
+                },
+                onZoomOut = {
+                    webViewState.zoomOut()
+                },
+                onSearchClicked = {
+                    webViewState.openFindBar()
+                },
+                onOpenFileClicked = {
+                    readerFilePickerLauncher.launch(arrayOf("application/pdf"))
+                }
+            )
         }
     ) { innerPadding ->
-        PdfWebView(
-            cachedFilePath = pdf.cachedFilePath,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-        )
+        ) {
+            PdfWebView(
+                cachedFilePath = pdf.cachedFilePath,
+                state = webViewState,
+                onPageChanged = { page, total ->
+                    currentPage = page
+                    totalPages = total
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+class PdfJsAssetsPathHandler(private val context: Context) : WebViewAssetLoader.PathHandler {
+    override fun handle(path: String): WebResourceResponse? {
+        return try {
+            val assetPath = "pdfjs/$path"
+            val mimeType = getMimeType(path)
+            WebResourceResponse(mimeType, "UTF-8", context.assets.open(assetPath))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getMimeType(path: String): String {
+        return when {
+            path.endsWith(".html", ignoreCase = true) -> "text/html"
+            path.endsWith(".css", ignoreCase = true) -> "text/css"
+            path.endsWith(".js", ignoreCase = true) || path.endsWith(".mjs", ignoreCase = true) -> "application/javascript"
+            path.endsWith(".json", ignoreCase = true) -> "application/json"
+            path.endsWith(".svg", ignoreCase = true) -> "image/svg+xml"
+            path.endsWith(".png", ignoreCase = true) -> "image/png"
+            path.endsWith(".gif", ignoreCase = true) -> "image/gif"
+            path.endsWith(".ftl", ignoreCase = true) -> "text/plain"
+            else -> "application/octet-stream"
+        }
     }
 }
 
 @Composable
 fun PdfWebView(
     cachedFilePath: String,
+    state: PdfWebViewState,
+    onPageChanged: (page: Int, total: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -714,7 +1045,7 @@ fun PdfWebView(
             }
         }
         WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+            .addPathHandler("/pdfjs/", PdfJsAssetsPathHandler(context))
             .addPathHandler("/cache/", WebViewAssetLoader.InternalStoragePathHandler(context, pdfCacheDir))
             .build()
     }
@@ -723,11 +1054,13 @@ fun PdfWebView(
         File(cachedFilePath).name
     }
 
-    val url = "https://appassets.androidplatform.net/assets/pdfjs/web/viewer.html?file=https://appassets.androidplatform.net/cache/$cacheFileName"
+    val url = "https://appassets.androidplatform.net/pdfjs/web/viewer.html?file=https://appassets.androidplatform.net/cache/$cacheFileName"
 
     AndroidView(
         factory = { ctx ->
             WebView(ctx).apply {
+                state.webView = this
+
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -740,12 +1073,41 @@ fun PdfWebView(
                     allowContentAccess = true
                 }
 
+                addJavascriptInterface(AndroidBridge(onPageChanged), "AndroidBridge")
+
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
                         view: WebView,
                         request: WebResourceRequest
                     ): WebResourceResponse? {
                         return assetLoader.shouldInterceptRequest(request.url)
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        view?.evaluateJavascript(
+                            """
+                            PDFViewerApplication.initializedPromise.then(() => {
+                                PDFViewerApplication.eventBus.on('pagechanging', (e) => {
+                                    AndroidBridge.onPageChanged(e.pageNumber, e.pagesCount);
+                                });
+                                PDFViewerApplication.eventBus.on('pagesinit', () => {
+                                    AndroidBridge.onPageChanged(
+                                        PDFViewerApplication.pdfViewer.currentPageNumber,
+                                        PDFViewerApplication.pagesCount
+                                    );
+                                });
+                                // Fallback if pages are already initialized
+                                if (PDFViewerApplication.pdfViewer && PDFViewerApplication.pdfViewer.pagesCount > 0) {
+                                    AndroidBridge.onPageChanged(
+                                        PDFViewerApplication.pdfViewer.currentPageNumber,
+                                        PDFViewerApplication.pdfViewer.pagesCount
+                                    );
+                                }
+                            });
+                            """.trimIndent(),
+                            null
+                        )
                     }
 
                     override fun onReceivedError(

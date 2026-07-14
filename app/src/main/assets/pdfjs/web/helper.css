@@ -1,0 +1,14 @@
+.toolbar {
+    display: none;
+}
+
+#viewerContainer {
+    --visible-toolbar-height: 0px;
+}
+
+#viewer ::selection {
+    background: var(--selection-color, rgba(0 0 255 / 0.25));
+}
+#viewer ::-moz-selection {
+    background: var(--selection-color, rgba(0 0 255 / 0.25));
+}
