@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,6 +64,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -721,12 +724,16 @@ fun PdfBottomBar(
     onNextPage: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
+    onRotate: () -> Unit,
+    onToggleSidebar: () -> Unit,
     onSearchClicked: () -> Unit,
     onOpenFileClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
         tonalElevation = 8.dp,
         shadowElevation = 8.dp,
         color = MaterialTheme.colorScheme.surface
@@ -734,7 +741,7 @@ fun PdfBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 12.dp),
+                .padding(horizontal = 4.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -747,6 +754,18 @@ fun PdfBottomBar(
                     imageVector = Icons.Default.FileOpen,
                     contentDescription = "فتح ملف",
                     tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Toggle Sidebar Button
+            IconButton(
+                onClick = onToggleSidebar,
+                modifier = Modifier.testTag("bottom_toggle_sidebar")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ViewSidebar,
+                    contentDescription = "القائمة الجانبية",
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
             }
 
@@ -770,6 +789,18 @@ fun PdfBottomBar(
                 Icon(
                     imageVector = Icons.Default.ZoomIn,
                     contentDescription = "تكبير",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            // Rotate Page Button
+            IconButton(
+                onClick = onRotate,
+                modifier = Modifier.testTag("bottom_rotate")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                    contentDescription = "تدوير الصفحة",
                     tint = MaterialTheme.colorScheme.onSurface
                 )
             }
@@ -904,6 +935,36 @@ class PdfWebViewState {
             )
         }
     }
+
+    fun rotatePage() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.pagesRotation += 90;
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun toggleSidebar() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfSidebar) {
+                        window.PDFViewerApplication.pdfSidebar.toggle();
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
 }
 
 class AndroidBridge(
@@ -1006,6 +1067,12 @@ fun PdfReaderScreen(
                 onZoomOut = {
                     webViewState.zoomOut()
                 },
+                onRotate = {
+                    webViewState.rotatePage()
+                },
+                onToggleSidebar = {
+                    webViewState.toggleSidebar()
+                },
                 onSearchClicked = {
                     webViewState.openFindBar()
                 },
@@ -1105,6 +1172,13 @@ fun PdfWebView(
 
                 addJavascriptInterface(AndroidBridge(onPageChanged), "AndroidBridge")
 
+                webChromeClient = object : android.webkit.WebChromeClient() {
+                    override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                        android.util.Log.d("PDF_JS_CONSOLE", "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}")
+                        return true
+                    }
+                }
+
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
                         view: WebView,
@@ -1120,22 +1194,47 @@ fun PdfWebView(
                             (function() {
                                 function init() {
                                     if (window.PDFViewerApplication && window.PDFViewerApplication.initializedPromise) {
+                                        // 1. Move the findbar to mainContainer so it's not hidden when we hide the toolbar
+                                        const findbar = document.getElementById("findbar");
+                                        const mainContainer = document.getElementById("mainContainer");
+                                        if (findbar && mainContainer && findbar.parentElement !== mainContainer) {
+                                            mainContainer.appendChild(findbar);
+                                        }
+
+                                        // 2. Register event listeners & fallback polling
                                         window.PDFViewerApplication.initializedPromise.then(() => {
+                                            const reportPage = (p, t) => {
+                                                if (window.AndroidBridge) {
+                                                    window.AndroidBridge.onPageChanged(p, t);
+                                                }
+                                            };
+
                                             window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
-                                                AndroidBridge.onPageChanged(e.pageNumber, window.PDFViewerApplication.pagesCount || 1);
+                                                reportPage(e.pageNumber, window.PDFViewerApplication.pagesCount || 1);
                                             });
+
                                             window.PDFViewerApplication.eventBus.on('pagesinit', () => {
-                                                AndroidBridge.onPageChanged(
-                                                    window.PDFViewerApplication.pdfViewer.currentPageNumber || 1,
-                                                    window.PDFViewerApplication.pagesCount || 1
-                                                );
+                                                const p = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                                                const t = window.PDFViewerApplication.pagesCount || 1;
+                                                reportPage(p, t);
                                             });
-                                            if (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pagesCount > 0) {
-                                                AndroidBridge.onPageChanged(
-                                                    window.PDFViewerApplication.pdfViewer.currentPageNumber || 1,
-                                                    window.PDFViewerApplication.pagesCount || 1
-                                                );
+
+                                            // 3. Fallback continuous polling to guarantee instantaneous updates
+                                            let lastPage = -1;
+                                            let lastTotal = -1;
+                                            function poll() {
+                                                if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                                                    const page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
+                                                    const total = window.PDFViewerApplication.pagesCount || 0;
+                                                    if (page !== lastPage || total !== lastTotal) {
+                                                        lastPage = page;
+                                                        lastTotal = total;
+                                                        reportPage(page, total);
+                                                    }
+                                                }
+                                                setTimeout(poll, 200);
                                             }
+                                            poll();
                                         });
                                     } else {
                                         setTimeout(init, 50);

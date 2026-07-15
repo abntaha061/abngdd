@@ -3,9 +3,7 @@
 /* Hide all default toolbar controls */
 #toolbarViewerLeft > *:not(.toolbarButtonWithContainer),
 #toolbarViewerMiddle,
-#toolbarViewerRight,
-#sidebarContainer,
-#sidebarResizer {
+#toolbarViewerRight {
     display: none !important;
 }
 
@@ -14,18 +12,9 @@
     display: none !important;
 }
 
-/* Make the toolbar container completely transparent and take 0 height */
+/* Hide the entire original toolbar completely */
 .toolbar, #toolbarContainer {
-    background-color: transparent !important;
-    background-image: none !important;
-    border-bottom: none !important;
-    box-shadow: none !important;
-    height: 0px !important;
-    min-height: 0px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: visible !important;
-    position: relative !important;
+    display: none !important;
 }
 
 /* Shift the PDF viewer container to the very top */
