@@ -88,6 +88,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,8 +99,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -121,6 +124,36 @@ import com.example.data.PdfRepository
 import com.example.data.RecentPdf
 import com.example.ui.theme.MyApplicationTheme
 import java.io.File
+
+// Imports for custom bottom sheets and widgets
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.surfaceColorAtElevation
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import android.view.WindowManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -722,115 +755,84 @@ fun RecentPdfItem(
 
 @Composable
 fun PdfBottomBar(
-    currentPage: Int,
-    totalPages: Int,
-    onPrevPage: () -> Unit,
-    onNextPage: () -> Unit,
-    onZoomIn: () -> Unit,
-    onZoomOut: () -> Unit,
-    onRotate: () -> Unit,
     onToggleSidebar: () -> Unit,
+    onZoomClick: () -> Unit,
+    onDisplaySettingsClick: () -> Unit,
+    onMoreOptionsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding(),
+        modifier = modifier,
+        shape = RoundedCornerShape(32.dp),
         tonalElevation = 8.dp,
         shadowElevation = 8.dp,
-        color = MaterialTheme.colorScheme.surface
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Toggle Sidebar Button
+            // 1. Pages/Sidebar Button (البيجات)
             IconButton(
                 onClick = onToggleSidebar,
-                modifier = Modifier.testTag("bottom_toggle_sidebar")
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("bottom_pages")
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ViewSidebar,
-                    contentDescription = "القائمة الجانبية",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    contentDescription = "الصفحات الجانبية",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            // Zoom Out Button
+            // 2. Zoom Button (الزوم وعرض المحتوى)
             IconButton(
-                onClick = onZoomOut,
-                modifier = Modifier.testTag("bottom_zoom_out")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ZoomOut,
-                    contentDescription = "تصغير",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            // Zoom In Button
-            IconButton(
-                onClick = onZoomIn,
-                modifier = Modifier.testTag("bottom_zoom_in")
+                onClick = onZoomClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("bottom_zoom")
             ) {
                 Icon(
                     imageVector = Icons.Default.ZoomIn,
-                    contentDescription = "تكبير",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    contentDescription = "الزوم وعرض المحتوى",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            // Rotate Page Button
+            // 3. Display Settings Button (إعدادات العرض)
             IconButton(
-                onClick = onRotate,
-                modifier = Modifier.testTag("bottom_rotate")
+                onClick = onDisplaySettingsClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("bottom_display_settings")
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.RotateRight,
-                    contentDescription = "تدوير الصفحة",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    imageVector = Icons.Default.Palette,
+                    contentDescription = "إعدادات العرض والتنسيق",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            // Page Navigation (Prev - Number - Next)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+            // 4. More Options Button (٣ نقاط)
+            IconButton(
+                onClick = onMoreOptionsClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("bottom_more_options")
             ) {
-                IconButton(
-                    onClick = onPrevPage,
-                    enabled = currentPage > 1,
-                    modifier = Modifier.testTag("bottom_prev_page")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = "الصفحة السابقة",
-                        tint = if (currentPage > 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    )
-                }
-
-                Text(
-                    text = "$currentPage / $totalPages",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 4.dp).testTag("bottom_page_number")
+                Icon(
+                    imageVector = Icons.Default.MoreHoriz,
+                    contentDescription = "المزيد من الخيارات والوظائف",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
                 )
-
-                IconButton(
-                    onClick = onNextPage,
-                    enabled = currentPage < totalPages,
-                    modifier = Modifier.testTag("bottom_next_page")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "الصفحة التالية",
-                        tint = if (currentPage < totalPages) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    )
-                }
             }
         }
     }
@@ -838,6 +840,184 @@ fun PdfBottomBar(
 
 class PdfWebViewState {
     var webView: WebView? = null
+
+    // --- NEW FUNCTIONS FOR ADVANCED POPUPS ---
+    fun zoomActualSize() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.currentScale = 1.0;
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun zoomFitWidth() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.currentScaleValue = 'page-width';
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun zoomFitPage() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.currentScaleValue = 'page-fit';
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun setReadingTheme(theme: String) {
+        webView?.post {
+            val css = when (theme) {
+                "dark" -> """
+                    body, #viewerContainer { background-color: #1E1F22 !important; }
+                    .page { background-color: #2B2D31 !important; filter: invert(0.9) hue-rotate(180deg) !important; }
+                """.trimIndent()
+                "black" -> """
+                    body, #viewerContainer { background-color: #000000 !important; }
+                    .page { background-color: #111111 !important; filter: invert(1) hue-rotate(180deg) !important; }
+                """.trimIndent()
+                "sepia" -> """
+                    body, #viewerContainer { background-color: #F4ECD8 !important; }
+                    .page { background-color: #FCF5E3 !important; filter: sepia(0.6) contrast(0.95) !important; }
+                """.trimIndent()
+                else -> """
+                    body, #viewerContainer { background-color: #F4F4F4 !important; }
+                    .page { background-color: #FFFFFF !important; filter: none !important; }
+                """.trimIndent()
+            }
+            val js = """
+                (function() {
+                    const styleId = 'pdf-custom-theme-style';
+                    let style = document.getElementById(styleId);
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = styleId;
+                        document.head.appendChild(style);
+                    }
+                    style.innerHTML = `${css.replace("\n", " ")}`;
+                })();
+            """.trimIndent()
+            webView?.evaluateJavascript(js, null)
+        }
+    }
+
+    fun setScrollMode(mode: Int) {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.scrollMode = $mode;
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun setPageSnapping(enabled: Boolean) {
+        webView?.post {
+            val js = if (enabled) {
+                """
+                (function() {
+                    const el = document.getElementById('viewerContainer');
+                    if (el) {
+                        el.style.scrollSnapType = 'y mandatory';
+                        const pages = document.getElementsByClassName('page');
+                        for (let page of pages) {
+                            page.style.scrollSnapAlign = 'start';
+                        }
+                    }
+                })();
+                """.trimIndent()
+            } else {
+                """
+                (function() {
+                    const el = document.getElementById('viewerContainer');
+                    if (el) {
+                        el.style.scrollSnapType = 'none';
+                    }
+                })();
+                """.trimIndent()
+            }
+            webView?.evaluateJavascript(js, null)
+        }
+    }
+
+    fun jumpToPage(page: Int) {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                        window.PDFViewerApplication.pdfViewer.currentPageNumber = $page;
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun startAutoScroll(speedMs: Int) {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.pdfAutoScrollInterval) {
+                        clearInterval(window.pdfAutoScrollInterval);
+                    }
+                    const el = document.getElementById('viewerContainer');
+                    window.pdfAutoScrollInterval = setInterval(function() {
+                        if (el) {
+                            el.scrollTop += 1;
+                        }
+                    }, $speedMs);
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun stopAutoScroll() {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.pdfAutoScrollInterval) {
+                        clearInterval(window.pdfAutoScrollInterval);
+                        window.pdfAutoScrollInterval = null;
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
 
     fun nextPage() {
         webView?.post {
@@ -1069,6 +1249,860 @@ class AndroidBridge(
     }
 }
 
+enum class ReaderBottomSheetType {
+    ZOOM_DISPLAY,
+    DISPLAY_SETTINGS,
+    MORE_OPTIONS,
+    BOOKMARKS_LIST,
+    JUMP_PAGE,
+    DOCUMENT_INFO
+}
+
+@Composable
+fun ZoomDisplayBottomSheet(
+    zoomPercentage: Int,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onActualSize: () -> Unit,
+    onFitWidth: () -> Unit,
+    onFitPage: () -> Unit,
+    currentOrientation: Int,
+    onOrientationChange: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            text = "الزوم وعرض المحتوى",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Start
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+        // Zoom Control Row
+        Text(
+            text = "نسبة التكبير والتصغير",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onZoomOut,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+            ) {
+                Icon(Icons.Default.ZoomOut, contentDescription = "تصغير")
+            }
+
+            Text(
+                text = "$zoomPercentage%",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            IconButton(
+                onClick = onZoomIn,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+            ) {
+                Icon(Icons.Default.ZoomIn, contentDescription = "تكبير")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Quick Zoom Row
+        Text(
+            text = "الخيارات السريعة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val presets = listOf(
+                "الحجم الفعلي" to onActualSize,
+                "عرض الصفحة" to onFitWidth,
+                "ملائمة الصفحة" to onFitPage
+            )
+            presets.forEach { (label, onClick) ->
+                Button(
+                    onClick = onClick,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Orientation Control Row
+        Text(
+            text = "اتجاه الشاشة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val orientations = listOf(
+                Triple("تلقائي", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, Icons.Default.ScreenRotation),
+                Triple("أفقي", ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, Icons.Default.ScreenRotation),
+                Triple("رأسي", ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Icons.Default.ScreenRotation)
+            )
+            orientations.forEach { (label, value, icon) ->
+                val isSelected = currentOrientation == value
+                Button(
+                    onClick = { onOrientationChange(value) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DisplaySettingsBottomSheet(
+    currentTheme: String,
+    onThemeChange: (String) -> Unit,
+    useSystemBrightness: Boolean,
+    onUseSystemBrightnessChange: (Boolean) -> Unit,
+    brightness: Float,
+    onBrightnessChange: (Float) -> Unit,
+    keepScreenOn: Boolean,
+    onKeepScreenOnChange: (Boolean) -> Unit,
+    scrollMode: Int,
+    onScrollModeChange: (Int) -> Unit,
+    snapToPage: Boolean,
+    onSnapToPageChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "إعدادات العرض والتنسيق",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+        // Themes
+        Text(text = "سمة القراءة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val themes = listOf(
+                "light" to "فاتح",
+                "dark" to "داكن",
+                "black" to "أسود",
+                "sepia" to "سيبيا"
+            )
+            themes.forEach { (key, label) ->
+                val isSelected = currentTheme == key
+                val (bgColor, textColor) = when (key) {
+                    "light" -> Color.White to Color.Black
+                    "dark" -> Color(0xFF1E1F22) to Color.White
+                    "black" -> Color.Black to Color.White
+                    "sepia" -> Color(0xFFF4ECD8) to Color(0xFF5B4636)
+                    else -> Color.White to Color.Black
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .background(bgColor, RoundedCornerShape(12.dp))
+                        .border(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable { onThemeChange(key) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = textColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+
+        // Brightness
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "سطوع الشاشة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = useSystemBrightness,
+                    onCheckedChange = onUseSystemBrightnessChange
+                )
+                Text(text = "تلقائي", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        if (!useSystemBrightness) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.Brightness4, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(
+                    value = brightness,
+                    onValueChange = onBrightnessChange,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+
+        // Keep screen on
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(text = "إبقاء الشاشة مضاءة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(text = "منع إيقاف تشغيل الشاشة أثناء القراءة", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = keepScreenOn,
+                onCheckedChange = onKeepScreenOnChange
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+
+        // Scroll Mode
+        Text(text = "اتجاه التصفح", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(0 to "رأسي متتالي", 1 to "أفقي صفحة بصفحة").forEach { (mode, label) ->
+                val isSelected = scrollMode == mode
+                Button(
+                    onClick = { onScrollModeChange(mode) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(text = label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+
+        // Page Snapping
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(text = "محاذاة الصفحات التلقائي (Snap)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(text = "محاذاة حواف الصفحات أثناء التمرير", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = snapToPage,
+                onCheckedChange = onSnapToPageChange
+            )
+        }
+    }
+}
+
+@Composable
+fun MoreOptionsBottomSheet(
+    currentPage: Int,
+    isBookmarked: Boolean,
+    onToggleBookmark: () -> Unit,
+    onViewBookmarks: () -> Unit,
+    isAutoScrolling: Boolean,
+    onToggleAutoScroll: () -> Unit,
+    autoScrollSpeedMs: Int,
+    onSpeedChange: (Int) -> Unit,
+    onJumpToPage: () -> Unit,
+    onShare: () -> Unit,
+    onPrint: () -> Unit,
+    onDocInfo: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(top = 12.dp, bottom = 24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                text = "خيارات وأدوات إضافية",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth()
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+        }
+
+        // Section: Reading tools
+        item {
+            Text(text = "أدوات القراءة", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
+
+        // Bookmark toggle
+        item {
+            MoreOptionItem(
+                icon = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                title = if (isBookmarked) "إزالة الصفحة $currentPage من الإشارات المرجعية" else "إضافة الصفحة $currentPage للإشارات المرجعية",
+                onClick = onToggleBookmark,
+                tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        // View bookmarks
+        item {
+            MoreOptionItem(
+                icon = Icons.Default.Bookmark,
+                title = "عرض كل الإشارات المرجعية المحفوظة",
+                onClick = onViewBookmarks
+            )
+        }
+
+        // Auto-scroll control
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .padding(12.dp)
+            ) {
+                MoreOptionItem(
+                    icon = if (isAutoScrolling) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    title = if (isAutoScrolling) "إيقاف التمرير التلقائي" else "تشغيل التمرير التلقائي",
+                    onClick = onToggleAutoScroll,
+                    tint = if (isAutoScrolling) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+
+                if (isAutoScrolling) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(text = "سرعة التمرير:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val speeds = listOf(
+                            120 to "بطيء",
+                            60 to "متوسط",
+                            30 to "سريع",
+                            15 to "سريع جداً"
+                        )
+                        speeds.forEach { (ms, label) ->
+                            val isSelected = autoScrollSpeedMs == ms
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(32.dp)
+                                    .background(
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onSpeedChange(ms) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Jump to page
+        item {
+            MoreOptionItem(
+                icon = Icons.Default.Settings,
+                title = "الذهاب المباشر إلى صفحة محددة",
+                onClick = onJumpToPage
+            )
+        }
+
+        // Section: Document actions
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+            Text(text = "خيارات الملف ومشاركته", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
+
+        // Share document
+        item {
+            MoreOptionItem(
+                icon = Icons.Default.Share,
+                title = "مشاركة هذا المستند مع الآخرين",
+                onClick = onShare
+            )
+        }
+
+        // Print document
+        item {
+            MoreOptionItem(
+                icon = Icons.Default.Print,
+                title = "طباعة المستند الحالي",
+                onClick = onPrint
+            )
+        }
+
+        // Document Info
+        item {
+            MoreOptionItem(
+                icon = Icons.Default.Info,
+                title = "معلومات وبيانات المستند التفصيلية",
+                onClick = onDocInfo
+            )
+        }
+    }
+}
+
+@Composable
+fun MoreOptionItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = tint)
+    }
+}
+
+@Composable
+fun BookmarksListBottomSheet(
+    bookmarks: Set<Int>,
+    onBookmarkClick: (Int) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "العلامات المرجعية المحفوظة",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+        if (bookmarks.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.BookmarkBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                    Text(
+                        text = "لا توجد علامات مرجعية محفوظة بعد.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "يمكنك إضافة الصفحة الحالية من خلال خيارات الثلاث نقاط.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(bookmarks.toList().sorted()) { pageNum ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            .clickable {
+                                onBookmarkClick(pageNum)
+                                onClose()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "صفحة $pageNum",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "الانتقال",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DocumentInfoBottomSheet(
+    pdf: RecentPdf,
+    totalPages: Int,
+    currentPage: Int
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "معلومات المستند",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            InfoBox(
+                label = "نوع الملف",
+                value = "PDF",
+                modifier = Modifier.weight(1f)
+            )
+
+            InfoBox(
+                label = "حجم الملف",
+                value = formatFileSize(pdf.fileSize),
+                modifier = Modifier.weight(1f)
+            )
+
+            InfoBox(
+                label = "الصفحات",
+                value = "$totalPages",
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        DetailRow(label = "عنوان المستند", value = pdf.title)
+        DetailRow(label = "مسار الملف الكاش", value = pdf.cachedFilePath)
+        DetailRow(label = "المصدر الأصلي", value = pdf.sourceUriOrUrl)
+        DetailRow(label = "آخر صفحة مقروءة", value = "الصفحة $currentPage")
+        
+        val dateFormater = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+        DetailRow(label = "تاريخ الاستيراد", value = dateFormater.format(Date(pdf.timestamp)))
+    }
+}
+
+@Composable
+fun InfoBox(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+fun DetailRow(
+    label: String,
+    value: String
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 16.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+    }
+}
+
+fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
+    return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+}
+
+@Composable
+fun JumpPageBottomSheet(
+    currentPage: Int,
+    totalPages: Int,
+    onJump: (Int) -> Unit,
+    onClose: () -> Unit
+) {
+    var textInput by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "الذهاب إلى صفحة",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+        Text(
+            text = "أدخل رقم الصفحة بين 1 و $totalPages (أنت حالياً في الصفحة $currentPage)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        OutlinedTextField(
+            value = textInput,
+            onValueChange = {
+                textInput = it
+                errorMsg = null
+            },
+            label = { Text("رقم الصفحة") },
+            placeholder = { Text("مثال: 45") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Go
+            ),
+            keyboardActions = KeyboardActions(
+                onGo = {
+                    val page = textInput.toIntOrNull()
+                    if (page != null && page in 1..totalPages) {
+                        onJump(page)
+                        onClose()
+                    } else {
+                        errorMsg = "الرجاء إدخال رقم صفحة صحيح بين 1 و $totalPages"
+                    }
+                }
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            isError = errorMsg != null
+        )
+
+        if (errorMsg != null) {
+            Text(
+                text = errorMsg!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = {
+                    val page = textInput.toIntOrNull()
+                    if (page != null && page in 1..totalPages) {
+                        onJump(page)
+                        onClose()
+                    } else {
+                        errorMsg = "الرجاء إدخال رقم صفحة صحيح بين 1 و $totalPages"
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("ذهاب", fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = onClose,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("إلغاء", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+fun printPdf(context: Context, pdf: RecentPdf) {
+    val printManager = context.getSystemService(Context.PRINT_SERVICE) as? android.print.PrintManager ?: return
+    val jobName = "طباعة - ${pdf.title}"
+    val file = File(pdf.cachedFilePath)
+    if (!file.exists()) return
+    
+    val printAdapter = object : android.print.PrintDocumentAdapter() {
+        override fun onLayout(
+            oldAttributes: android.print.PrintAttributes?,
+            newAttributes: android.print.PrintAttributes?,
+            cancellationSignal: android.os.CancellationSignal?,
+            callback: LayoutResultCallback?,
+            extras: android.os.Bundle?
+        ) {
+            if (cancellationSignal?.isCanceled == true) {
+                callback?.onLayoutCancelled()
+                return
+            }
+            val info = android.print.PrintDocumentInfo.Builder(pdf.title)
+                .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                .build()
+            callback?.onLayoutFinished(info, true)
+        }
+
+        override fun onWrite(
+            pages: Array<out android.print.PageRange>?,
+            destination: android.os.ParcelFileDescriptor?,
+            cancellationSignal: android.os.CancellationSignal?,
+            callback: WriteResultCallback?
+        ) {
+            var input: java.io.InputStream? = null
+            var output: java.io.OutputStream? = null
+            try {
+                input = file.inputStream()
+                output = java.io.FileOutputStream(destination?.fileDescriptor)
+                input.copyTo(output)
+                callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+            } catch (e: Exception) {
+                callback?.onWriteFailed(e.toString())
+            } finally {
+                input?.close()
+                output?.close()
+            }
+        }
+    }
+    printManager.print(jobName, printAdapter, null)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfReaderScreen(
@@ -1087,6 +2121,93 @@ fun PdfReaderScreen(
     var searchCurrentMatch by remember { mutableStateOf(0) }
     var searchTotalMatches by remember { mutableStateOf(0) }
     var isMatchCase by remember { mutableStateOf(false) }
+
+    // Custom Bottom Sheets States
+    var activeBottomSheet by remember { mutableStateOf<ReaderBottomSheetType?>(null) }
+    var zoomPercentage by remember { mutableStateOf(100) }
+    var screenOrientation by remember { mutableStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
+    var readingTheme by remember { mutableStateOf("light") }
+    var useSystemBrightness by remember { mutableStateOf(true) }
+    var brightnessValue by remember { mutableStateOf(0.5f) }
+    var keepScreenOn by remember { mutableStateOf(false) }
+    var scrollMode by remember { mutableStateOf(0) } // 0: Vertical, 1: Horizontal
+    var snapToPage by remember { mutableStateOf(false) }
+
+    // Bookmarking and Auto-scroll
+    var bookmarks by remember { mutableStateOf(setOf<Int>()) }
+    var isAutoScrolling by remember { mutableStateOf(false) }
+    var autoScrollSpeedMs by remember { mutableStateOf(60) }
+
+    // Bookmarks persistence
+    val prefs = remember { context.getSharedPreferences("pdf_reader_prefs", Context.MODE_PRIVATE) }
+    val pdfKey = remember(pdf) { "bookmarks_${pdf.title.hashCode()}" }
+    LaunchedEffect(pdf) {
+        val saved = prefs.getStringSet(pdfKey, emptySet()) ?: emptySet()
+        bookmarks = saved.mapNotNull { it.toIntOrNull() }.toSet()
+    }
+
+    // Keep screen on side effect
+    val activity = context as? Activity
+    DisposableEffect(keepScreenOn) {
+        if (keepScreenOn) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // Reading theme side effect
+    LaunchedEffect(readingTheme) {
+        webViewState.setReadingTheme(readingTheme)
+    }
+
+    // Scroll mode side effect
+    LaunchedEffect(scrollMode) {
+        webViewState.setScrollMode(scrollMode)
+    }
+
+    // Snap to page side effect
+    LaunchedEffect(snapToPage) {
+        webViewState.setPageSnapping(snapToPage)
+    }
+
+    // Auto-scroll side effect
+    LaunchedEffect(isAutoScrolling, autoScrollSpeedMs) {
+        if (isAutoScrolling) {
+            webViewState.startAutoScroll(autoScrollSpeedMs)
+        } else {
+            webViewState.stopAutoScroll()
+        }
+    }
+
+    // Screen brightness side effect
+    LaunchedEffect(useSystemBrightness, brightnessValue) {
+        activity?.let { act ->
+            val lp = act.window.attributes
+            if (useSystemBrightness) {
+                lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            } else {
+                lp.screenBrightness = brightnessValue.coerceIn(0.01f, 1.0f)
+            }
+            act.window.attributes = lp
+        }
+    }
+
+    // Restore screen brightness on dispose
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.let { act ->
+                val lp = act.window.attributes
+                lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                act.window.attributes = lp
+                // Restore orientation to normal when leaving
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
 
     val readerFilePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -1122,7 +2243,8 @@ fun PdfReaderScreen(
                                 searchCurrentMatch = 0
                                 searchTotalMatches = 0
                                 webViewState.clearSearch(isMatchCase)
-                            }
+                            },
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -1131,8 +2253,10 @@ fun PdfReaderScreen(
                             )
                         }
 
-                        // Search input text field
-                        OutlinedTextField(
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Search input text field using BasicTextField for perfect vertical alignment and custom styling
+                        BasicTextField(
                             value = searchQuery,
                             onValueChange = { q ->
                                 searchQuery = q
@@ -1144,45 +2268,58 @@ fun PdfReaderScreen(
                                     webViewState.performSearch(q, isMatchCase)
                                 }
                             },
-                            placeholder = {
-                                Text(
-                                    text = "ابحث عن كلمة...",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 14.sp
-                                )
-                            },
                             singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = Color.White.copy(alpha = 0.5f),
-                                unfocusedBorderColor = Color.Transparent,
-                                cursorColor = Color.White
+                            textStyle = TextStyle(
+                                color = Color.White,
+                                fontSize = 15.sp
                             ),
+                            cursorBrush = SolidColor(Color.White),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(52.dp)
-                                .padding(vertical = 4.dp),
-                            textStyle = TextStyle(fontSize = 14.sp),
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = {
-                                            searchQuery = ""
-                                            searchCurrentMatch = 0
-                                            searchTotalMatches = 0
-                                            webViewState.clearSearch(isMatchCase)
-                                        }
+                                .height(40.dp)
+                                .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 12.dp),
+                            decorationBox = { innerTextField ->
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier.weight(1f),
+                                        contentAlignment = Alignment.CenterStart
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "مسح",
-                                            tint = Color.White
-                                        )
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "البحث عن كلمة...",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 15.sp
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = {
+                                                searchQuery = ""
+                                                searchCurrentMatch = 0
+                                                searchTotalMatches = 0
+                                                webViewState.clearSearch(isMatchCase)
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "مسح",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         )
+
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         // Matches count status
                         if (searchQuery.isNotEmpty()) {
@@ -1207,13 +2344,14 @@ fun PdfReaderScreen(
                                 if (searchQuery.isNotEmpty()) {
                                     webViewState.performSearch(searchQuery, nextMatchCase)
                                 }
-                            }
+                            },
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Text(
                                 text = "Aa",
                                 color = if (isMatchCase) Color.White else Color.White.copy(alpha = 0.5f),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 15.sp
                             )
                         }
 
@@ -1224,7 +2362,8 @@ fun PdfReaderScreen(
                                     webViewState.searchPrevious(searchQuery, isMatchCase)
                                 }
                             },
-                            enabled = searchQuery.isNotEmpty()
+                            enabled = searchQuery.isNotEmpty(),
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowUp,
@@ -1240,7 +2379,8 @@ fun PdfReaderScreen(
                                     webViewState.searchNext(searchQuery, isMatchCase)
                                 }
                             },
-                            enabled = searchQuery.isNotEmpty()
+                            enabled = searchQuery.isNotEmpty(),
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
@@ -1311,39 +2451,18 @@ fun PdfReaderScreen(
                 )
             }
         },
-        bottomBar = {
-            PdfBottomBar(
-                currentPage = currentPage,
-                totalPages = totalPages,
-                onPrevPage = {
-                    webViewState.prevPage()
-                },
-                onNextPage = {
-                    webViewState.nextPage()
-                },
-                onZoomIn = {
-                    webViewState.zoomIn()
-                },
-                onZoomOut = {
-                    webViewState.zoomOut()
-                },
-                onRotate = {
-                    webViewState.rotatePage()
-                },
-                onToggleSidebar = {
-                    webViewState.toggleSidebar()
-                }
-            )
-        }
+        bottomBar = {}
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // The WebView spans the whole area
             PdfWebView(
                 cachedFilePath = pdf.cachedFilePath,
                 state = webViewState,
+                readingTheme = readingTheme,
                 onPageChanged = { page, total ->
                     currentPage = page
                     totalPages = total
@@ -1358,8 +2477,178 @@ fun PdfReaderScreen(
                         searchTotalMatches = 0
                     }
                 },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxSize()
             )
+
+            // 1. Floating Page Number Indicator (Top Center Pill)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                tonalElevation = 6.dp,
+                shadowElevation = 6.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.1f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clickable { activeBottomSheet = ReaderBottomSheetType.JUMP_PAGE }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Book,
+                        contentDescription = "الانتقال لصفحة",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "الصفحة $currentPage / $totalPages",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+
+            // 2. Floating Capsule Bottom Bar (Bottom Center)
+            PdfBottomBar(
+                onToggleSidebar = { webViewState.toggleSidebar() },
+                onZoomClick = { activeBottomSheet = ReaderBottomSheetType.ZOOM_DISPLAY },
+                onDisplaySettingsClick = { activeBottomSheet = ReaderBottomSheetType.DISPLAY_SETTINGS },
+                onMoreOptionsClick = { activeBottomSheet = ReaderBottomSheetType.MORE_OPTIONS },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .navigationBarsPadding()
+            )
+        }
+    }
+
+    if (activeBottomSheet != null) {
+        ModalBottomSheet(
+            onDismissRequest = { activeBottomSheet = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 16.dp
+        ) {
+            when (activeBottomSheet) {
+                ReaderBottomSheetType.ZOOM_DISPLAY -> {
+                    ZoomDisplayBottomSheet(
+                        zoomPercentage = zoomPercentage,
+                        onZoomIn = {
+                            webViewState.zoomIn()
+                            zoomPercentage = (zoomPercentage + 25).coerceAtMost(300)
+                        },
+                        onZoomOut = {
+                            webViewState.zoomOut()
+                            zoomPercentage = (zoomPercentage - 25).coerceAtLeast(25)
+                        },
+                        onActualSize = {
+                            webViewState.zoomActualSize()
+                            zoomPercentage = 100
+                        },
+                        onFitWidth = {
+                            webViewState.zoomFitWidth()
+                        },
+                        onFitPage = {
+                            webViewState.zoomFitPage()
+                        },
+                        currentOrientation = screenOrientation,
+                        onOrientationChange = { orient ->
+                            screenOrientation = orient
+                            (context as? Activity)?.requestedOrientation = orient
+                        }
+                    )
+                }
+                ReaderBottomSheetType.DISPLAY_SETTINGS -> {
+                    DisplaySettingsBottomSheet(
+                        currentTheme = readingTheme,
+                        onThemeChange = { readingTheme = it },
+                        useSystemBrightness = useSystemBrightness,
+                        onUseSystemBrightnessChange = { useSystemBrightness = it },
+                        brightness = brightnessValue,
+                        onBrightnessChange = { brightnessValue = it },
+                        keepScreenOn = keepScreenOn,
+                        onKeepScreenOnChange = { keepScreenOn = it },
+                        scrollMode = scrollMode,
+                        onScrollModeChange = { scrollMode = it },
+                        snapToPage = snapToPage,
+                        onSnapToPageChange = { snapToPage = it }
+                    )
+                }
+                ReaderBottomSheetType.MORE_OPTIONS -> {
+                    MoreOptionsBottomSheet(
+                        currentPage = currentPage,
+                        isBookmarked = bookmarks.contains(currentPage),
+                        onToggleBookmark = {
+                            val newBookmarks = bookmarks.toMutableSet()
+                            if (newBookmarks.contains(currentPage)) {
+                                newBookmarks.remove(currentPage)
+                            } else {
+                                newBookmarks.add(currentPage)
+                            }
+                            bookmarks = newBookmarks
+                            prefs.edit().putStringSet(pdfKey, newBookmarks.map { it.toString() }.toSet()).apply()
+                        },
+                        onViewBookmarks = {
+                            activeBottomSheet = ReaderBottomSheetType.BOOKMARKS_LIST
+                        },
+                        isAutoScrolling = isAutoScrolling,
+                        onToggleAutoScroll = {
+                            isAutoScrolling = !isAutoScrolling
+                        },
+                        autoScrollSpeedMs = autoScrollSpeedMs,
+                        onSpeedChange = { autoScrollSpeedMs = it },
+                        onJumpToPage = {
+                            activeBottomSheet = ReaderBottomSheetType.JUMP_PAGE
+                        },
+                        onShare = {
+                            val file = File(pdf.cachedFilePath)
+                            if (file.exists()) {
+                                sharePdf(context, file)
+                            } else {
+                                Toast.makeText(context, "الملف غير موجود لمشاركته", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onPrint = {
+                            printPdf(context, pdf)
+                        },
+                        onDocInfo = {
+                            activeBottomSheet = ReaderBottomSheetType.DOCUMENT_INFO
+                        }
+                    )
+                }
+                ReaderBottomSheetType.BOOKMARKS_LIST -> {
+                    BookmarksListBottomSheet(
+                        bookmarks = bookmarks,
+                        onBookmarkClick = { page ->
+                            webViewState.jumpToPage(page)
+                        },
+                        onClose = { activeBottomSheet = null }
+                    )
+                }
+                ReaderBottomSheetType.JUMP_PAGE -> {
+                    JumpPageBottomSheet(
+                        currentPage = currentPage,
+                        totalPages = totalPages,
+                        onJump = { page ->
+                            webViewState.jumpToPage(page)
+                        },
+                        onClose = { activeBottomSheet = null }
+                    )
+                }
+                ReaderBottomSheetType.DOCUMENT_INFO -> {
+                    DocumentInfoBottomSheet(
+                        pdf = pdf,
+                        totalPages = totalPages,
+                        currentPage = currentPage
+                    )
+                }
+                else -> {}
+            }
         }
     }
 }
@@ -1394,6 +2683,7 @@ class PdfJsAssetsPathHandler(private val context: Context) : WebViewAssetLoader.
 fun PdfWebView(
     cachedFilePath: String,
     state: PdfWebViewState,
+    readingTheme: String,
     onPageChanged: (page: Int, total: Int) -> Unit,
     onSearchMatchesCount: (current: Int, total: Int) -> Unit,
     onSearchStateChanged: (state: Int, previous: Boolean) -> Unit,
@@ -1505,6 +2795,19 @@ fun PdfWebView(
                                         `;
                                         document.head.appendChild(style);
 
+                                        // Apply initial selected theme style
+                                        const themeStyle = document.createElement("style");
+                                        themeStyle.id = 'pdf-custom-theme-style';
+                                        themeStyle.textContent = `${
+                                            when (readingTheme) {
+                                                "dark" -> "body, #viewerContainer { background-color: #1E1F22 !important; } .page { background-color: #2B2D31 !important; filter: invert(0.9) hue-rotate(180deg) !important; }"
+                                                "black" -> "body, #viewerContainer { background-color: #000000 !important; } .page { background-color: #111111 !important; filter: invert(1) hue-rotate(180deg) !important; }"
+                                                "sepia" -> "body, #viewerContainer { background-color: #F4ECD8 !important; } .page { background-color: #FCF5E3 !important; filter: sepia(0.6) contrast(0.95) !important; }"
+                                                else -> "body, #viewerContainer { background-color: #F4F4F4 !important; } .page { background-color: #FFFFFF !important; filter: none !important; }"
+                                            }
+                                        }`;
+                                        document.head.appendChild(themeStyle);
+
                                         // 2. Register event listeners & fallback polling
                                         window.PDFViewerApplication.initializedPromise.then(() => {
                                             console.log("PDF_JS_INIT: initializedPromise resolved");
@@ -1537,8 +2840,11 @@ fun PdfWebView(
 
                                                     window.PDFViewerApplication.eventBus.on('updatefindmatchescount', (e) => {
                                                         try {
+                                                            const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
+                                                            const total = (e.matchesCount && typeof e.matchesCount.total === 'number') ? e.matchesCount.total : 0;
+                                                            console.log("PDF_JS_FIND: updatefindmatchescount event: current=" + current + ", total=" + total);
                                                             if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
-                                                                window.AndroidBridge.onSearchMatchesCount(e.matchesCount.current, e.matchesCount.total);
+                                                                window.AndroidBridge.onSearchMatchesCount(current, total);
                                                             }
                                                         } catch (err) {
                                                             console.error("PDF_JS_FIND_ERROR: updatefindmatchescount: " + err.message);
@@ -1547,8 +2853,17 @@ fun PdfWebView(
 
                                                     window.PDFViewerApplication.eventBus.on('updatefindcontrolstate', (e) => {
                                                         try {
+                                                            console.log("PDF_JS_FIND: updatefindcontrolstate event: state=" + e.state + ", previous=" + e.previous);
                                                             if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
                                                                 window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
+                                                            }
+                                                            if (e.matchesCount) {
+                                                                const current = typeof e.matchesCount.current === 'number' ? e.matchesCount.current : 0;
+                                                                const total = typeof e.matchesCount.total === 'number' ? e.matchesCount.total : 0;
+                                                                console.log("PDF_JS_FIND: updatefindcontrolstate matches: current=" + current + ", total=" + total);
+                                                                if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                                                    window.AndroidBridge.onSearchMatchesCount(current, total);
+                                                                }
                                                             }
                                                         } catch (err) {
                                                             console.error("PDF_JS_FIND_ERROR: updatefindcontrolstate: " + err.message);
@@ -1561,12 +2876,15 @@ fun PdfWebView(
                                                 console.error("PDF_JS_INIT_ERROR: Event subscription failed: " + e.message);
                                             }
 
-                                            // 3. Fallback continuous polling to guarantee instantaneous updates
+                                            // 3. Fallback continuous polling to guarantee instantaneous updates (including search matches)
                                             let lastPage = -1;
                                             let lastTotal = -1;
+                                            let lastMatchCurrent = -1;
+                                            let lastMatchTotal = -1;
                                             function poll() {
                                                 try {
                                                     if (window.PDFViewerApplication) {
+                                                        // Polling page information
                                                         let page = 1;
                                                         if (window.PDFViewerApplication.pdfViewer) {
                                                             page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
@@ -1585,6 +2903,35 @@ fun PdfWebView(
                                                             lastPage = page;
                                                             lastTotal = total;
                                                             reportPage(page, total);
+                                                        }
+
+                                                        // Polling search matches count directly from findController internal state
+                                                        if (window.PDFViewerApplication.findController) {
+                                                            const fc = window.PDFViewerApplication.findController;
+                                                            if (fc._selected) {
+                                                                const pageIdx = fc._selected.pageIdx;
+                                                                const matchIdx = fc._selected.matchIdx;
+                                                                let current = 0;
+                                                                let matchTotal = fc._matchesCountTotal || 0;
+                                                                if (matchIdx !== -1) {
+                                                                    for (let i = 0; i < pageIdx; i++) {
+                                                                        current += (fc._pageMatches && fc._pageMatches[i]) ? fc._pageMatches[i].length : 0;
+                                                                    }
+                                                                    current += matchIdx + 1;
+                                                                }
+                                                                if (current < 1 || current > matchTotal) {
+                                                                    current = matchTotal = 0;
+                                                                }
+
+                                                                if (current !== lastMatchCurrent || matchTotal !== lastMatchTotal) {
+                                                                    lastMatchCurrent = current;
+                                                                    lastMatchTotal = matchTotal;
+                                                                    console.log("PDF_JS_FIND_POLL: Matches updated to current=" + current + ", total=" + matchTotal);
+                                                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                                                        window.AndroidBridge.onSearchMatchesCount(current, matchTotal);
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 } catch (e) {
