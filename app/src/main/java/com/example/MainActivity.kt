@@ -60,6 +60,9 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
@@ -100,6 +103,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -726,8 +730,6 @@ fun PdfBottomBar(
     onZoomOut: () -> Unit,
     onRotate: () -> Unit,
     onToggleSidebar: () -> Unit,
-    onSearchClicked: () -> Unit,
-    onOpenFileClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -745,18 +747,6 @@ fun PdfBottomBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Open File Button
-            IconButton(
-                onClick = onOpenFileClicked,
-                modifier = Modifier.testTag("bottom_open_file")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FileOpen,
-                    contentDescription = "فتح ملف",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-
             // Toggle Sidebar Button
             IconButton(
                 onClick = onToggleSidebar,
@@ -842,18 +832,6 @@ fun PdfBottomBar(
                     )
                 }
             }
-
-            // Search Button
-            IconButton(
-                onClick = onSearchClicked,
-                modifier = Modifier.testTag("bottom_search")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "بحث",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
         }
     }
 }
@@ -936,6 +914,101 @@ class PdfWebViewState {
         }
     }
 
+    fun performSearch(query: String, caseSensitive: Boolean) {
+        webView?.post {
+            val escapedQuery = query.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.eventBus) {
+                        window.PDFViewerApplication.eventBus.dispatch('find', {
+                            type: '',
+                            query: "$escapedQuery",
+                            caseSensitive: $caseSensitive,
+                            entireWord: false,
+                            highlightAll: true,
+                            findPrevious: false,
+                            matchDiacritics: true
+                        });
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun searchNext(query: String, caseSensitive: Boolean) {
+        webView?.post {
+            val escapedQuery = query.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.eventBus) {
+                        window.PDFViewerApplication.eventBus.dispatch('find', {
+                            type: 'again',
+                            query: "$escapedQuery",
+                            caseSensitive: $caseSensitive,
+                            entireWord: false,
+                            highlightAll: true,
+                            findPrevious: false,
+                            matchDiacritics: true
+                        });
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun searchPrevious(query: String, caseSensitive: Boolean) {
+        webView?.post {
+            val escapedQuery = query.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.eventBus) {
+                        window.PDFViewerApplication.eventBus.dispatch('find', {
+                            type: 'again',
+                            query: "$escapedQuery",
+                            caseSensitive: $caseSensitive,
+                            entireWord: false,
+                            highlightAll: true,
+                            findPrevious: true,
+                            matchDiacritics: true
+                        });
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun clearSearch(caseSensitive: Boolean) {
+        webView?.post {
+            webView?.evaluateJavascript(
+                """
+                (function() {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.eventBus) {
+                        window.PDFViewerApplication.eventBus.dispatch('find', {
+                            type: '',
+                            query: '',
+                            caseSensitive: $caseSensitive,
+                            entireWord: false,
+                            highlightAll: false,
+                            findPrevious: false,
+                            matchDiacritics: true
+                        });
+                    }
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
     fun rotatePage() {
         webView?.post {
             webView?.evaluateJavascript(
@@ -968,7 +1041,9 @@ class PdfWebViewState {
 }
 
 class AndroidBridge(
-    private val onPageChanged: (page: Int, total: Int) -> Unit
+    private val onPageChanged: (page: Int, total: Int) -> Unit,
+    private val onSearchMatchesCount: (current: Int, total: Int) -> Unit,
+    private val onSearchStateChanged: (state: Int, previous: Boolean) -> Unit
 ) {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -976,6 +1051,20 @@ class AndroidBridge(
     fun onPageChanged(page: Int, total: Int) {
         handler.post {
             onPageChanged(page, total)
+        }
+    }
+
+    @JavascriptInterface
+    fun onSearchMatchesCount(current: Int, total: Int) {
+        handler.post {
+            onSearchMatchesCount(current, total)
+        }
+    }
+
+    @JavascriptInterface
+    fun onSearchStateChanged(state: Int, previous: Boolean) {
+        handler.post {
+            onSearchStateChanged(state, previous)
         }
     }
 }
@@ -993,6 +1082,12 @@ fun PdfReaderScreen(
     var totalPages by remember { mutableStateOf(1) }
     val webViewState = remember { PdfWebViewState() }
 
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchCurrentMatch by remember { mutableStateOf(0) }
+    var searchTotalMatches by remember { mutableStateOf(0) }
+    var isMatchCase by remember { mutableStateOf(false) }
+
     val readerFilePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -1004,52 +1099,217 @@ fun PdfReaderScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = pdf.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = Color.White
-                    )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("back_button")
+            if (isSearchActive) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.primary,
+                    tonalElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "رجوع",
-                            tint = Color.White
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            val file = File(pdf.cachedFilePath)
-                            if (file.exists()) {
-                                sharePdf(context, file)
-                            } else {
-                                Toast.makeText(context, "الملف غير موجود في الذاكرة المؤقتة لمشاركته", Toast.LENGTH_SHORT).show()
+                        // Close search button
+                        IconButton(
+                            onClick = {
+                                isSearchActive = false
+                                searchQuery = ""
+                                searchCurrentMatch = 0
+                                searchTotalMatches = 0
+                                webViewState.clearSearch(isMatchCase)
                             }
-                        },
-                        modifier = Modifier.testTag("share_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "مشاركة",
-                            tint = Color.White
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "إغلاق البحث",
+                                tint = Color.White
+                            )
+                        }
+
+                        // Search input text field
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { q ->
+                                searchQuery = q
+                                if (q.isEmpty()) {
+                                    searchCurrentMatch = 0
+                                    searchTotalMatches = 0
+                                    webViewState.clearSearch(isMatchCase)
+                                } else {
+                                    webViewState.performSearch(q, isMatchCase)
+                                }
+                            },
+                            placeholder = {
+                                Text(
+                                    text = "ابحث عن كلمة...",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 14.sp
+                                )
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = Color.White.copy(alpha = 0.5f),
+                                unfocusedBorderColor = Color.Transparent,
+                                cursorColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .padding(vertical = 4.dp),
+                            textStyle = TextStyle(fontSize = 14.sp),
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            searchQuery = ""
+                                            searchCurrentMatch = 0
+                                            searchTotalMatches = 0
+                                            webViewState.clearSearch(isMatchCase)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "مسح",
+                                            tint = Color.White
+                                        )
+                                    }
+                                }
+                            }
                         )
+
+                        // Matches count status
+                        if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = if (searchTotalMatches > 0) {
+                                    "$searchCurrentMatch / $searchTotalMatches"
+                                } else {
+                                    "0/0"
+                                },
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+
+                        // Case sensitive button "Aa"
+                        IconButton(
+                            onClick = {
+                                val nextMatchCase = !isMatchCase
+                                isMatchCase = nextMatchCase
+                                if (searchQuery.isNotEmpty()) {
+                                    webViewState.performSearch(searchQuery, nextMatchCase)
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = "Aa",
+                                color = if (isMatchCase) Color.White else Color.White.copy(alpha = 0.5f),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
+
+                        // Previous Match button
+                        IconButton(
+                            onClick = {
+                                if (searchQuery.isNotEmpty()) {
+                                    webViewState.searchPrevious(searchQuery, isMatchCase)
+                                }
+                            },
+                            enabled = searchQuery.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "السابق",
+                                tint = if (searchQuery.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.5f)
+                            )
+                        }
+
+                        // Next Match button
+                        IconButton(
+                            onClick = {
+                                if (searchQuery.isNotEmpty()) {
+                                    webViewState.searchNext(searchQuery, isMatchCase)
+                                }
+                            },
+                            enabled = searchQuery.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "التالي",
+                                tint = if (searchQuery.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.5f)
+                            )
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = pdf.title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = Color.White
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.testTag("back_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "رجوع",
+                                tint = Color.White
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                isSearchActive = true
+                            },
+                            modifier = Modifier.testTag("top_search_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "بحث",
+                                tint = Color.White
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                val file = File(pdf.cachedFilePath)
+                                if (file.exists()) {
+                                    sharePdf(context, file)
+                                } else {
+                                    Toast.makeText(context, "الملف غير موجود في الذاكرة المؤقتة لمشاركته", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.testTag("share_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "مشاركة",
+                                tint = Color.White
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
                 )
-            )
+            }
         },
         bottomBar = {
             PdfBottomBar(
@@ -1072,12 +1332,6 @@ fun PdfReaderScreen(
                 },
                 onToggleSidebar = {
                     webViewState.toggleSidebar()
-                },
-                onSearchClicked = {
-                    webViewState.openFindBar()
-                },
-                onOpenFileClicked = {
-                    readerFilePickerLauncher.launch(arrayOf("application/pdf"))
                 }
             )
         }
@@ -1093,6 +1347,16 @@ fun PdfReaderScreen(
                 onPageChanged = { page, total ->
                     currentPage = page
                     totalPages = total
+                },
+                onSearchMatchesCount = { current, total ->
+                    searchCurrentMatch = current
+                    searchTotalMatches = total
+                },
+                onSearchStateChanged = { state, previous ->
+                    if (state == 1) { // FindState.NOT_FOUND
+                        searchCurrentMatch = 0
+                        searchTotalMatches = 0
+                    }
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -1131,6 +1395,8 @@ fun PdfWebView(
     cachedFilePath: String,
     state: PdfWebViewState,
     onPageChanged: (page: Int, total: Int) -> Unit,
+    onSearchMatchesCount: (current: Int, total: Int) -> Unit,
+    onSearchStateChanged: (state: Int, previous: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1173,7 +1439,14 @@ fun PdfWebView(
                     allowContentAccess = true
                 }
 
-                addJavascriptInterface(AndroidBridge(onPageChanged), "AndroidBridge")
+                addJavascriptInterface(
+                    AndroidBridge(
+                        onPageChanged = onPageChanged,
+                        onSearchMatchesCount = onSearchMatchesCount,
+                        onSearchStateChanged = onSearchStateChanged
+                    ),
+                    "AndroidBridge"
+                )
 
                 webChromeClient = object : android.webkit.WebChromeClient() {
                     override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
@@ -1196,11 +1469,13 @@ fun PdfWebView(
                             """
                             (function() {
                                 function init() {
+                                    console.log("PDF_JS_INIT: Checking PDFViewerApplication");
                                     if (window.PDFViewerApplication && window.PDFViewerApplication.initializedPromise) {
-                                        // 0. Inject fail-safe styles directly into the head to hide the top toolbar
+                                        console.log("PDF_JS_INIT: PDFViewerApplication found, injecting styles");
+                                        // 0. Inject fail-safe styles directly into the head to hide the top toolbar and find bar
                                         const style = document.createElement("style");
                                         style.textContent = `
-                                            .toolbar, #toolbarContainer {
+                                            .toolbar, #toolbarContainer, .findbar, #findbar, #findbarContainer {
                                                 display: none !important;
                                                 height: 0px !important;
                                                 min-height: 0px !important;
@@ -1217,47 +1492,96 @@ fun PdfWebView(
                                         `;
                                         document.head.appendChild(style);
 
-                                        // 1. Move the findbar to mainContainer so it's not hidden when we hide the toolbar
-                                        const findbar = document.getElementById("findbar");
-                                        const mainContainer = document.getElementById("mainContainer");
-                                        if (findbar && mainContainer && findbar.parentElement !== mainContainer) {
-                                            mainContainer.appendChild(findbar);
-                                        }
-
                                         // 2. Register event listeners & fallback polling
                                         window.PDFViewerApplication.initializedPromise.then(() => {
+                                            console.log("PDF_JS_INIT: initializedPromise resolved");
                                             const reportPage = (p, t) => {
-                                                if (window.AndroidBridge) {
-                                                    window.AndroidBridge.onPageChanged(p, t);
+                                                try {
+                                                    console.log("PDF_JS_REPORT: page=" + p + " total=" + t + " hasBridge=" + !!window.AndroidBridge);
+                                                    if (window.AndroidBridge && typeof window.AndroidBridge.onPageChanged === "function") {
+                                                        window.AndroidBridge.onPageChanged(p, t);
+                                                    } else {
+                                                        console.warn("PDF_JS_REPORT_WARN: AndroidBridge not found or onPageChanged is not a function");
+                                                    }
+                                                } catch (e) {
+                                                    console.error("PDF_JS_REPORT_ERROR: reportPage failed: " + e.message);
                                                 }
                                             };
 
-                                            window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
-                                                reportPage(e.pageNumber, window.PDFViewerApplication.pagesCount || 1);
-                                            });
+                                            // Subscribe to events
+                                            try {
+                                                if (window.PDFViewerApplication.eventBus) {
+                                                    window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
+                                                        const total = (window.PDFViewerApplication.pdfDocument ? window.PDFViewerApplication.pdfDocument.numPages : 0) || window.PDFViewerApplication.pagesCount || 1;
+                                                        reportPage(e.pageNumber, total);
+                                                    });
 
-                                            window.PDFViewerApplication.eventBus.on('pagesinit', () => {
-                                                const p = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
-                                                const t = window.PDFViewerApplication.pagesCount || 1;
-                                                reportPage(p, t);
-                                            });
+                                                    window.PDFViewerApplication.eventBus.on('pagesinit', () => {
+                                                        const p = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                                                        const total = (window.PDFViewerApplication.pdfDocument ? window.PDFViewerApplication.pdfDocument.numPages : 0) || window.PDFViewerApplication.pagesCount || 1;
+                                                        reportPage(p, total);
+                                                    });
+
+                                                    window.PDFViewerApplication.eventBus.on('updatefindmatchescount', (e) => {
+                                                        try {
+                                                            if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                                                window.AndroidBridge.onSearchMatchesCount(e.matchesCount.current, e.matchesCount.total);
+                                                            }
+                                                        } catch (err) {
+                                                            console.error("PDF_JS_FIND_ERROR: updatefindmatchescount: " + err.message);
+                                                        }
+                                                    });
+
+                                                    window.PDFViewerApplication.eventBus.on('updatefindcontrolstate', (e) => {
+                                                        try {
+                                                            if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
+                                                                window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
+                                                            }
+                                                        } catch (err) {
+                                                            console.error("PDF_JS_FIND_ERROR: updatefindcontrolstate: " + err.message);
+                                                        }
+                                                    });
+
+                                                    console.log("PDF_JS_INIT: Event listeners registered");
+                                                }
+                                            } catch (e) {
+                                                console.error("PDF_JS_INIT_ERROR: Event subscription failed: " + e.message);
+                                            }
 
                                             // 3. Fallback continuous polling to guarantee instantaneous updates
                                             let lastPage = -1;
                                             let lastTotal = -1;
                                             function poll() {
-                                                if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
-                                                    const page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
-                                                    const total = window.PDFViewerApplication.pagesCount || 0;
-                                                    if (page !== lastPage || total !== lastTotal) {
-                                                        lastPage = page;
-                                                        lastTotal = total;
-                                                        reportPage(page, total);
+                                                try {
+                                                    if (window.PDFViewerApplication) {
+                                                        let page = 1;
+                                                        if (window.PDFViewerApplication.pdfViewer) {
+                                                            page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
+                                                        } else if (window.PDFViewerApplication.page) {
+                                                            page = window.PDFViewerApplication.page;
+                                                        }
+
+                                                        let total = 0;
+                                                        if (window.PDFViewerApplication.pdfDocument) {
+                                                            total = window.PDFViewerApplication.pdfDocument.numPages || 0;
+                                                        } else if (window.PDFViewerApplication.pagesCount) {
+                                                            total = window.PDFViewerApplication.pagesCount;
+                                                        }
+
+                                                        if (page !== lastPage || total !== lastTotal) {
+                                                            lastPage = page;
+                                                            lastTotal = total;
+                                                            reportPage(page, total);
+                                                        }
                                                     }
+                                                } catch (e) {
+                                                    console.error("PDF_JS_POLL_ERROR: polling failed: " + e.message);
                                                 }
-                                                setTimeout(poll, 200);
+                                                setTimeout(poll, 250);
                                             }
                                             poll();
+                                        }).catch(e => {
+                                            console.error("PDF_JS_INIT_ERROR: initializedPromise then failed: " + e.message);
                                         });
                                     } else {
                                         setTimeout(init, 50);
