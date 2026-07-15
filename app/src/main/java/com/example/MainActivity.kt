@@ -1158,6 +1158,9 @@ fun PdfWebView(
             WebView(ctx).apply {
                 state.webView = this
 
+                // Clear cache on startup to ensure updated styles are loaded immediately
+                clearCache(true)
+
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -1194,6 +1197,26 @@ fun PdfWebView(
                             (function() {
                                 function init() {
                                     if (window.PDFViewerApplication && window.PDFViewerApplication.initializedPromise) {
+                                        // 0. Inject fail-safe styles directly into the head to hide the top toolbar
+                                        const style = document.createElement("style");
+                                        style.textContent = `
+                                            .toolbar, #toolbarContainer {
+                                                display: none !important;
+                                                height: 0px !important;
+                                                min-height: 0px !important;
+                                                padding: 0 !important;
+                                                margin: 0 !important;
+                                                overflow: hidden !important;
+                                                visibility: hidden !important;
+                                            }
+                                            #viewerContainer {
+                                                top: 0px !important;
+                                                bottom: 0px !important;
+                                                --visible-toolbar-height: 0px !important;
+                                            }
+                                        `;
+                                        document.head.appendChild(style);
+
                                         // 1. Move the findbar to mainContainer so it's not hidden when we hide the toolbar
                                         const findbar = document.getElementById("findbar");
                                         const mainContainer = document.getElementById("mainContainer");
