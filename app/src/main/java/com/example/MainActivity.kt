@@ -1424,6 +1424,9 @@ fun PdfWebView(
             WebView(ctx).apply {
                 state.webView = this
 
+                // Explicitly force hardware acceleration for incredibly smooth GPU-backed rendering and scrolling
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+
                 // Clear cache on startup to ensure updated styles are loaded immediately
                 clearCache(true)
 
@@ -1488,6 +1491,16 @@ fun PdfWebView(
                                                 top: 0px !important;
                                                 bottom: 0px !important;
                                                 --visible-toolbar-height: 0px !important;
+                                                overflow-y: auto !important;
+                                                overflow-x: hidden !important;
+                                                -webkit-overflow-scrolling: touch !important;
+                                                scroll-behavior: smooth !important;
+                                                will-change: transform !important;
+                                                transform: translateZ(0) !important;
+                                            }
+                                            .pdfViewer .page {
+                                                will-change: transform !important;
+                                                transform: translateZ(0) !important;
                                             }
                                         `;
                                         document.head.appendChild(style);

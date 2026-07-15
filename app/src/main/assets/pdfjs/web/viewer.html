@@ -55,6 +55,16 @@ See https://github.com/adobe-type-tools/cmap-resources
           top: 0px !important;
           bottom: 0px !important;
           --visible-toolbar-height: 0px !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          -webkit-overflow-scrolling: touch !important;
+          scroll-behavior: smooth !important;
+          will-change: transform !important;
+          transform: translateZ(0) !important;
+      }
+      .pdfViewer .page {
+          will-change: transform !important;
+          transform: translateZ(0) !important;
       }
       #findbar {
           position: absolute !important;
@@ -146,8 +156,8 @@ See https://github.com/adobe-type-tools/cmap-resources
       </div>  <!-- sidebarContainer -->
 
       <div id="mainContainer">
-        <div class="toolbar">
-          <div id="toolbarContainer">
+        <div class="toolbar" style="display: none !important; height: 0px !important; min-height: 0px !important; padding: 0 !important; margin: 0 !important; overflow: hidden !important; visibility: hidden !important;">
+          <div id="toolbarContainer" style="display: none !important; height: 0px !important; min-height: 0px !important; padding: 0 !important; margin: 0 !important; overflow: hidden !important; visibility: hidden !important;">
             <div id="toolbarViewer" class="toolbarHorizontalGroup">
               <div id="toolbarViewerLeft" class="toolbarHorizontalGroup">
                 <button id="sidebarToggleButton" class="toolbarButton" type="button" title="Toggle Sidebar" tabindex="0" data-l10n-id="pdfjs-toggle-sidebar-button" aria-expanded="false" aria-haspopup="true" aria-controls="sidebarContainer">
