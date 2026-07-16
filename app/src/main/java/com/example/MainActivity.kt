@@ -76,6 +76,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -106,6 +107,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import android.speech.tts.TextToSpeech
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -2425,6 +2427,16 @@ fun PdfReaderScreen(
                         audioWord = extractedWord
                         showMiniPlayer = true
                     } else {
+                        val lower = url.lowercase()
+                        val isDict = lower.contains("arabdict") || lower.contains("dict.cc") || lower.contains("duden") || lower.contains("deutsch") || lower.contains("anbricht")
+                        if (isDict) {
+                            val extractedWord = extractGermanWord(url, text)
+                            if (extractedWord.isNotEmpty()) {
+                                audioWord = extractedWord
+                                audioPlayUrl = null
+                                showMiniPlayer = true
+                            }
+                        }
                         inAppBrowserUrl = url
                     }
                 },
@@ -2539,14 +2551,9 @@ fun PdfReaderScreen(
                     .padding(top = 72.dp)
                     .zIndex(15f)
             ) {
-                MiniAudioPlayer(
+                ReusableMiniAudioPlayer(
                     word = audioWord,
-                    audioState = audioState,
-                    onReplay = {
-                        val currentUrl = audioPlayUrl
-                        audioPlayUrl = null
-                        audioPlayUrl = currentUrl
-                    },
+                    audioUrl = audioPlayUrl,
                     onClose = {
                         showMiniPlayer = false
                         audioPlayUrl = null
@@ -2817,80 +2824,337 @@ fun extractWordFromAudioUrl(url: String, text: String): String {
     return "نطق"
 }
 
+fun extractGermanWord(url: String, text: String): String {
+    try {
+        val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
+        val lowerUrl = decodedUrl.lowercase()
+        
+        if (lowerUrl.contains("arabdict.com")) {
+            val segment = decodedUrl.substringAfterLast("/")
+            if (segment.isNotEmpty() && !segment.contains("?") && !segment.contains("=")) {
+                return segment
+            }
+        }
+        
+        if (lowerUrl.contains("dict.cc")) {
+            val uri = android.net.Uri.parse(url)
+            val sParam = uri.getQueryParameter("s")
+            if (!sParam.isNullOrEmpty()) {
+                return sParam
+            }
+        }
+        
+        if (lowerUrl.contains("duden.de")) {
+            val segment = decodedUrl.substringAfterLast("/")
+            if (segment.isNotEmpty() && !segment.contains("?") && !segment.contains("=")) {
+                return segment
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("WordExtractor", "Error extracting word: ${e.message}")
+    }
+    
+    val cleanText = text.trim()
+    if (cleanText.isNotEmpty() && cleanText.length < 30 && !cleanText.contains("http") && !cleanText.contains("www")) {
+        return cleanText
+    }
+    
+    return ""
+}
+
+fun checkWordForUrl(word: String): String? {
+    val pattern = java.util.regex.Pattern.compile(
+        "(https?://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|])",
+        java.util.regex.Pattern.CASE_INSENSITIVE
+    )
+    val matcher = pattern.matcher(word)
+    return if (matcher.find()) {
+        matcher.group(1)
+    } else {
+        null
+    }
+}
+
 @Composable
-fun MiniAudioPlayer(
+fun ReusableMiniAudioPlayer(
     word: String,
-    audioState: AudioPlayState,
-    onReplay: () -> Unit,
+    audioUrl: String?,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    
+    // Resolve final audio URL: if the word string contains a URL, use that URL as the audio source
+    val finalAudioUrl = remember(word, audioUrl) {
+        val extracted = checkWordForUrl(word)
+        if (!extracted.isNullOrEmpty()) {
+            extracted
+        } else {
+            audioUrl
+        }
+    }
+
+    // Is it playing via direct URL (MediaPlayer) or local TextToSpeech?
+    val isTtsMode = finalAudioUrl.isNullOrEmpty()
+
+    var isPlaying by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+    var duration by remember { mutableStateOf(1) }
+    var currentPosition by remember { mutableStateOf(0) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var hasError by remember { mutableStateOf(false) }
+
+    // TTS engine initialization
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+    var isTtsReady by remember { mutableStateOf(false) }
+
+    if (isTtsMode) {
+        DisposableEffect(context) {
+            val ttsEngine = TextToSpeech(context) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    isTtsReady = true
+                }
+            }
+            ttsEngine.language = java.util.Locale.GERMAN
+            tts = ttsEngine
+            
+            onDispose {
+                ttsEngine.stop()
+                ttsEngine.shutdown()
+            }
+        }
+    }
+
+    // MediaPlayer setup
+    LaunchedEffect(finalAudioUrl) {
+        if (finalAudioUrl.isNullOrEmpty()) {
+            mediaPlayer?.release()
+            mediaPlayer = null
+            return@LaunchedEffect
+        }
+
+        isBuffering = true
+        isPlaying = false
+        progress = 0f
+        hasError = false
+
+        mediaPlayer?.release()
+
+        val mp = MediaPlayer().apply {
+            try {
+                setDataSource(finalAudioUrl)
+                setOnPreparedListener {
+                    isBuffering = false
+                    isPlaying = true
+                    duration = it.duration.coerceAtLeast(1)
+                    it.start()
+                }
+                setOnCompletionListener {
+                    isPlaying = false
+                    progress = 1.0f
+                }
+                setOnErrorListener { _, _, _ ->
+                    isBuffering = false
+                    isPlaying = false
+                    hasError = true
+                    false
+                }
+                prepareAsync()
+            } catch (e: Exception) {
+                isBuffering = false
+                isPlaying = false
+                hasError = true
+                android.util.Log.e("ReusableAudioPlayer", "Error loading audio: ${e.message}")
+            }
+        }
+        mediaPlayer = mp
+    }
+
+    // TTS speaker helper
+    val speakTts = {
+        val currentTts = tts
+        if (currentTts != null && isTtsReady) {
+            isPlaying = true
+            progress = 0f
+            // Filter out any URL or path elements from the word before speaking it
+            val speakText = word.substringBefore("http").substringBefore("www").trim()
+            if (speakText.isNotEmpty()) {
+                currentTts.speak(speakText, TextToSpeech.QUEUE_FLUSH, null, "ReusableMiniPlayerTTS")
+            }
+        }
+    }
+
+    // Auto-trigger TTS play on start if in TTS mode
+    LaunchedEffect(isTtsReady, isTtsMode) {
+        if (isTtsMode && isTtsReady) {
+            speakTts()
+        }
+    }
+
+    // Play/Pause Click Handler
+    val handlePlayPause = {
+        if (isTtsMode) {
+            if (isPlaying) {
+                tts?.stop()
+                isPlaying = false
+            } else {
+                speakTts()
+            }
+        } else {
+            val mp = mediaPlayer
+            if (mp != null && !isBuffering && !hasError) {
+                try {
+                    if (mp.isPlaying) {
+                        mp.pause()
+                        isPlaying = false
+                    } else {
+                        if (mp.currentPosition >= duration - 300) {
+                            mp.seekTo(0)
+                        }
+                        mp.start()
+                        isPlaying = true
+                    }
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
+    }
+
+    // Keep progress updated
+    LaunchedEffect(mediaPlayer, isPlaying, isTtsMode) {
+        if (!isTtsMode && mediaPlayer != null) {
+            while (isPlaying) {
+                val mp = mediaPlayer
+                if (mp != null) {
+                    try {
+                        val pos = mp.currentPosition
+                        currentPosition = pos
+                        val dur = mp.duration.coerceAtLeast(1)
+                        duration = dur
+                        progress = pos.toFloat() / dur.toFloat()
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                }
+                kotlinx.coroutines.delay(50)
+            }
+        } else if (isTtsMode && isPlaying) {
+            val startTime = System.currentTimeMillis()
+            val estimatedDuration = 1200L // 1.2 seconds estimate for typical words
+            while (isPlaying) {
+                val elapsed = System.currentTimeMillis() - startTime
+                if (elapsed >= estimatedDuration) {
+                    progress = 1.0f
+                    isPlaying = false
+                } else {
+                    progress = elapsed.toFloat() / estimatedDuration.toFloat()
+                }
+                kotlinx.coroutines.delay(30)
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mediaPlayer?.release()
+            mediaPlayer = null
+        }
+    }
+
     Surface(
-        shape = RoundedCornerShape(20.dp), // Dynamic Island rounded corners
-        color = Color(0xFF1E1F22), // Deep black-grey theme color
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF1E1F22),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
         shadowElevation = 8.dp,
         tonalElevation = 8.dp,
         modifier = modifier
-            .widthIn(min = 180.dp, max = 300.dp)
-            .height(38.dp) // Sleek compact height
+            .widthIn(min = 200.dp, max = 320.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Column(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // Replay Button (mini size)
-            IconButton(
-                onClick = onReplay,
-                modifier = Modifier.size(24.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                if (audioState == AudioPlayState.BUFFERING) {
-                    CircularProgressIndicator(
-                        color = Color(0xFF9C27B0), // Purple/Lavender accent
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(12.dp)
+                // Play/Pause or Loading Indicator
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    if (isBuffering) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF9C27B0), // Lavender accent
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    } else {
+                        IconButton(
+                            onClick = handlePlayPause,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Word text
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Filter out any URL or path from display
+                    val displayWord = word.substringBefore("http").substringBefore("www").trim()
+                    AutoSizeText(
+                        text = displayWord.ifEmpty { "تشغيل" },
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        initialFontSizeSp = 13f
                     )
-                } else {
+                }
+
+                // Close Button
+                IconButton(
+                    onClick = {
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        tts?.stop()
+                        onClose()
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "إعادة النطق",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "إغلاق",
+                        tint = Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
 
-            // Word text (AutoSizeText with custom initial font size 13.sp, centered)
-            Box(
+            // Bottom Progress Indicator
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                color = Color(0xFF9C27B0), // Purple accent
+                trackColor = Color.White.copy(alpha = 0.1f),
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                AutoSizeText(
-                    text = word,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    initialFontSizeSp = 13f
-                )
-            }
-
-            // Close Button 'x' (mini size)
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "إغلاق",
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(14.dp)
-                )
-            }
+                    .fillMaxWidth()
+                    .height(2.5.dp)
+            )
         }
     }
 }
