@@ -27,6 +27,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -2224,55 +2225,8 @@ fun PdfReaderScreen(
 
     var audioPlayUrl by remember { mutableStateOf<String?>(null) }
     var audioWord by remember { mutableStateOf("") }
-    var audioState by remember { mutableStateOf(AudioPlayState.IDLE) }
     var showMiniPlayer by remember { mutableStateOf(false) }
     var inAppBrowserUrl by remember { mutableStateOf<String?>(null) }
-
-    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            mediaPlayer?.release()
-            mediaPlayer = null
-        }
-    }
-
-    LaunchedEffect(audioPlayUrl) {
-        val url = audioPlayUrl
-        if (url == null) {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-            mediaPlayer = null
-            audioState = AudioPlayState.IDLE
-            return@LaunchedEffect
-        }
-
-        try {
-            audioState = AudioPlayState.BUFFERING
-            mediaPlayer?.release()
-            
-            val mp = MediaPlayer().apply {
-                setDataSource(url)
-                setOnPreparedListener {
-                    audioState = AudioPlayState.PLAYING
-                    start()
-                }
-                setOnCompletionListener {
-                    audioState = AudioPlayState.COMPLETED
-                    showMiniPlayer = false
-                }
-                setOnErrorListener { _, _, _ ->
-                    audioState = AudioPlayState.ERROR
-                    false
-                }
-                prepareAsync()
-            }
-            mediaPlayer = mp
-        } catch (e: Exception) {
-            audioState = AudioPlayState.ERROR
-            android.util.Log.e("AudioPlayer", "Error preparing media player", e)
-        }
-    }
 
     var isScrollerVisible by remember { mutableStateOf(false) }
     var isDraggingScroller by remember { mutableStateOf(false) }
@@ -2540,7 +2494,18 @@ fun PdfReaderScreen(
                     .navigationBarsPadding()
             )
 
-            // 4. Mini Audio Player (Dynamic Island)
+            // 4. Full Screen In-App Browser
+            inAppBrowserUrl?.let { browserUrl ->
+                InAppBrowser(
+                    url = browserUrl,
+                    onClose = { inAppBrowserUrl = null },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(10f)
+                )
+            }
+
+            // 5. Mini Audio Player (Dynamic Island) - Rendered last to appear on top of all content including the browser
             AnimatedVisibility(
                 visible = showMiniPlayer,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
@@ -2558,17 +2523,6 @@ fun PdfReaderScreen(
                         showMiniPlayer = false
                         audioPlayUrl = null
                     }
-                )
-            }
-
-            // 5. Full Screen In-App Browser
-            inAppBrowserUrl?.let { browserUrl ->
-                InAppBrowser(
-                    url = browserUrl,
-                    onClose = { inAppBrowserUrl = null },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(10f)
                 )
             }
         }
@@ -2905,24 +2859,23 @@ fun ReusableMiniAudioPlayer(
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var hasError by remember { mutableStateOf(false) }
 
-    // TTS engine initialization
+    // TTS engine initialization (unconditional so it's always ready)
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var isTtsReady by remember { mutableStateOf(false) }
 
-    if (isTtsMode) {
-        DisposableEffect(context) {
-            val ttsEngine = TextToSpeech(context) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    isTtsReady = true
-                }
+    DisposableEffect(context) {
+        var ttsEngine: TextToSpeech? = null
+        ttsEngine = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsEngine?.language = java.util.Locale.GERMAN
+                isTtsReady = true
             }
-            ttsEngine.language = java.util.Locale.GERMAN
-            tts = ttsEngine
-            
-            onDispose {
-                ttsEngine.stop()
-                ttsEngine.shutdown()
-            }
+        }
+        tts = ttsEngine
+        
+        onDispose {
+            ttsEngine?.stop()
+            ttsEngine?.shutdown()
         }
     }
 
@@ -2953,6 +2906,8 @@ fun ReusableMiniAudioPlayer(
                 setOnCompletionListener {
                     isPlaying = false
                     progress = 1.0f
+                    // Smooth Auto-hide
+                    onClose()
                 }
                 setOnErrorListener { _, _, _ ->
                     isBuffering = false
@@ -2985,8 +2940,8 @@ fun ReusableMiniAudioPlayer(
         }
     }
 
-    // Auto-trigger TTS play on start if in TTS mode
-    LaunchedEffect(isTtsReady, isTtsMode) {
+    // Auto-trigger TTS play on start if in TTS mode and word changes
+    LaunchedEffect(word, isTtsReady, isTtsMode) {
         if (isTtsMode && isTtsReady) {
             speakTts()
         }
@@ -3022,8 +2977,27 @@ fun ReusableMiniAudioPlayer(
         }
     }
 
+    // Replay Click Handler
+    val handleReplay = {
+        if (isTtsMode) {
+            speakTts()
+        } else {
+            val mp = mediaPlayer
+            if (mp != null && !isBuffering && !hasError) {
+                try {
+                    mp.seekTo(0)
+                    mp.start()
+                    isPlaying = true
+                    progress = 0f
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
+    }
+
     // Keep progress updated
-    LaunchedEffect(mediaPlayer, isPlaying, isTtsMode) {
+    LaunchedEffect(mediaPlayer, isPlaying, isTtsMode, word) {
         if (!isTtsMode && mediaPlayer != null) {
             while (isPlaying) {
                 val mp = mediaPlayer
@@ -3042,12 +3016,14 @@ fun ReusableMiniAudioPlayer(
             }
         } else if (isTtsMode && isPlaying) {
             val startTime = System.currentTimeMillis()
-            val estimatedDuration = 1200L // 1.2 seconds estimate for typical words
+            val estimatedDuration = (word.length * 100L + 600L).coerceIn(1000L, 3500L)
             while (isPlaying) {
                 val elapsed = System.currentTimeMillis() - startTime
                 if (elapsed >= estimatedDuration) {
                     progress = 1.0f
                     isPlaying = false
+                    // Auto-hide
+                    onClose()
                 } else {
                     progress = elapsed.toFloat() / estimatedDuration.toFloat()
                 }
@@ -3070,7 +3046,7 @@ fun ReusableMiniAudioPlayer(
         shadowElevation = 8.dp,
         tonalElevation = 8.dp,
         modifier = modifier
-            .widthIn(min = 200.dp, max = 320.dp)
+            .widthIn(min = 220.dp, max = 340.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth()
@@ -3083,33 +3059,51 @@ fun ReusableMiniAudioPlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Play/Pause or Loading Indicator
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(28.dp)
+                // Play/Pause, Loading Indicator, and Replay Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (isBuffering) {
-                        CircularProgressIndicator(
-                            color = Color(0xFF9C27B0), // Lavender accent
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    } else {
-                        IconButton(
-                            onClick = handlePlayPause,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        if (isBuffering) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF9C27B0), // Lavender accent
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
                             )
+                        } else {
+                            IconButton(
+                                onClick = handlePlayPause,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
+                    }
+
+                    // Replay button (إعادة النطق)
+                    IconButton(
+                        onClick = handleReplay,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "إعادة النطق",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
 
-                // Word text
+                // Word text with Marquee effect to handle long words gracefully
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -3123,7 +3117,8 @@ fun ReusableMiniAudioPlayer(
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        initialFontSizeSp = 13f
+                        initialFontSizeSp = 13f,
+                        modifier = Modifier.basicMarquee()
                     )
                 }
 
