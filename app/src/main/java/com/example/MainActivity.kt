@@ -141,6 +141,10 @@ import androidx.compose.ui.draw.drawWithContent
 import kotlin.math.roundToInt
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.zIndex
+import android.media.MediaPlayer
+
 
 // Imports for custom bottom sheets and widgets
 import androidx.compose.material3.ModalBottomSheet
@@ -1240,7 +1244,8 @@ class PdfWebViewState {
 class AndroidBridge(
     private val onPageChanged: (page: Int, total: Int) -> Unit,
     private val onSearchMatchesCount: (current: Int, total: Int) -> Unit,
-    private val onSearchStateChanged: (state: Int, previous: Boolean) -> Unit
+    private val onSearchStateChanged: (state: Int, previous: Boolean) -> Unit,
+    private val onLinkClicked: (url: String, text: String) -> Unit = { _, _ -> }
 ) {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -1267,7 +1272,25 @@ class AndroidBridge(
             onSearchStateChanged(state, previous)
         }
     }
+
+    @JavascriptInterface
+    fun onLinkClicked(url: String, text: String) {
+        android.util.Log.d("PDF_BRIDGE", "onLinkClicked called: url=$url, text=$text")
+        handler.post {
+            onLinkClicked(url, text)
+        }
+    }
 }
+
+enum class AudioPlayState {
+    IDLE,
+    BUFFERING,
+    PLAYING,
+    PAUSED,
+    COMPLETED,
+    ERROR
+}
+
 
 enum class ReaderBottomSheetType {
     ZOOM_DISPLAY,
@@ -2181,6 +2204,71 @@ fun PdfReaderScreen(
     var totalPages by remember(pdf) { mutableStateOf(getPdfPageCount(pdf.cachedFilePath)) }
     val webViewState = remember { PdfWebViewState() }
 
+    var audioPlayUrl by remember { mutableStateOf<String?>(null) }
+    var audioWord by remember { mutableStateOf("") }
+    var audioState by remember { mutableStateOf(AudioPlayState.IDLE) }
+    var showMiniPlayer by remember { mutableStateOf(false) }
+    var inAppBrowserUrl by remember { mutableStateOf<String?>(null) }
+
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mediaPlayer?.release()
+            mediaPlayer = null
+        }
+    }
+
+    LaunchedEffect(audioPlayUrl) {
+        val url = audioPlayUrl
+        if (url == null) {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            audioState = AudioPlayState.IDLE
+            return@LaunchedEffect
+        }
+
+        try {
+            audioState = AudioPlayState.BUFFERING
+            mediaPlayer?.release()
+            
+            val mp = MediaPlayer().apply {
+                setDataSource(url)
+                setOnPreparedListener {
+                    audioState = AudioPlayState.PLAYING
+                    start()
+                }
+                setOnCompletionListener {
+                    audioState = AudioPlayState.COMPLETED
+                    showMiniPlayer = false
+                }
+                setOnErrorListener { _, _, _ ->
+                    audioState = AudioPlayState.ERROR
+                    false
+                }
+                prepareAsync()
+            }
+            mediaPlayer = mp
+        } catch (e: Exception) {
+            audioState = AudioPlayState.ERROR
+            android.util.Log.e("AudioPlayer", "Error preparing media player", e)
+        }
+    }
+
+    var isScrollerVisible by remember { mutableStateOf(false) }
+    var isDraggingScroller by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentPage, isDraggingScroller) {
+        if (isDraggingScroller) {
+            isScrollerVisible = true
+        } else {
+            isScrollerVisible = true
+            kotlinx.coroutines.delay(3000)
+            isScrollerVisible = false
+        }
+    }
+
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searchCurrentMatch by remember { mutableStateOf(0) }
@@ -2312,6 +2400,16 @@ fun PdfReaderScreen(
                         searchTotalMatches = 0
                     }
                 },
+                onLinkClicked = { url, text ->
+                    val isAudio = isAudioUrl(url)
+                    if (isAudio) {
+                        audioPlayUrl = url
+                        audioWord = text.ifEmpty { "نطق" }
+                        showMiniPlayer = true
+                    } else {
+                        inAppBrowserUrl = url
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -2373,17 +2471,25 @@ fun PdfReaderScreen(
             }
 
             // 2. Custom Vertical Fast Scroller with Teardrop
-            PdfVerticalScroller(
-                currentPage = currentPage,
-                totalPages = totalPages,
-                onPageChange = { page ->
-                    currentPage = page
-                    webViewState.jumpToPage(page)
-                },
-                readingTheme = readingTheme,
+            AnimatedVisibility(
+                visible = isScrollerVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-            )
+            ) {
+                PdfVerticalScroller(
+                    currentPage = currentPage,
+                    totalPages = totalPages,
+                    onPageChange = { page ->
+                        currentPage = page
+                        webViewState.jumpToPage(page)
+                    },
+                    readingTheme = readingTheme,
+                    isDragging = isDraggingScroller,
+                    onDraggingChanged = { isDraggingScroller = it }
+                )
+            }
 
             // 3. Floating Capsule Bottom Bar (Bottom Center)
             PdfBottomBar(
@@ -2396,6 +2502,43 @@ fun PdfReaderScreen(
                     .padding(bottom = 24.dp)
                     .navigationBarsPadding()
             )
+
+            // 4. Mini Audio Player (Dynamic Island)
+            AnimatedVisibility(
+                visible = showMiniPlayer,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 72.dp)
+                    .zIndex(5f)
+            ) {
+                MiniAudioPlayer(
+                    word = audioWord,
+                    audioState = audioState,
+                    onReplay = {
+                        val currentUrl = audioPlayUrl
+                        audioPlayUrl = null
+                        audioPlayUrl = currentUrl
+                    },
+                    onClose = {
+                        showMiniPlayer = false
+                        audioPlayUrl = null
+                    }
+                )
+            }
+
+            // 5. Full Screen In-App Browser
+            inAppBrowserUrl?.let { browserUrl ->
+                InAppBrowser(
+                    url = browserUrl,
+                    onClose = { inAppBrowserUrl = null },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(10f)
+                )
+            }
         }
     }
 
@@ -2592,6 +2735,166 @@ fun AutoSizeText(
             }
         }
     )
+}
+
+fun isAudioUrl(url: String): Boolean {
+    val lower = url.lowercase()
+    return lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".ogg") || lower.endsWith(".aac") ||
+           lower.contains("/audio/") || lower.contains("/sound/") || lower.contains("/sounds/") || lower.contains("pronounce") || lower.contains("pronunciation") ||
+           lower.contains("translate_tts") || lower.contains("speech") || lower.contains("voice") || lower.contains(".mp3?") || lower.contains(".wav?")
+}
+
+@Composable
+fun MiniAudioPlayer(
+    word: String,
+    audioState: AudioPlayState,
+    onReplay: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp), // Dynamic Island rounded corners
+        color = Color(0xFF1E1F22), // Elegant dark black color
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+        shadowElevation = 8.dp,
+        tonalElevation = 8.dp,
+        modifier = modifier
+            .widthIn(min = 160.dp, max = 260.dp)
+            .height(40.dp) // Sleek compact height
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Replay Button (mini size)
+            IconButton(
+                onClick = onReplay,
+                modifier = Modifier.size(28.dp)
+            ) {
+                if (audioState == AudioPlayState.BUFFERING) {
+                    CircularProgressIndicator(
+                        color = Color(0xFF9C27B0), // Purple/Lavender accent
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(14.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "إعادة النطق",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Word text (AutoSizeText with custom styling, centered)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                AutoSizeText(
+                    text = word,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+
+            // Close Button 'x' (mini size)
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "إغلاق",
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InAppBrowser(
+    url: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = Color.White,
+        modifier = modifier.fillMaxSize()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // In-app Browser Header
+            Surface(
+                color = Color(0xFF1E1F22),
+                contentColor = Color.White,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(56.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "رجوع إلى المستند",
+                            tint = Color.White
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "المستعرض",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // In-app Browser Content (WebView)
+            AndroidView(
+                factory = { context ->
+                    WebView(context).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            useWideViewPort = true
+                            loadWithOverviewMode = true
+                            supportZoom()
+                            builtInZoomControls = true
+                            displayZoomControls = false
+                        }
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                return false // Allow page loading inside the local webview
+                            }
+                        }
+                        loadUrl(url)
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
 
 @Composable
@@ -2818,12 +3121,12 @@ fun PdfVerticalScroller(
     totalPages: Int,
     onPageChange: (Int) -> Unit,
     readingTheme: String,
+    isDragging: Boolean,
+    onDraggingChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (totalPages <= 1) return
 
-    // Track state of dragging
-    var isDragging by remember { mutableStateOf(false) }
     // Local drag position y (fraction from 0.0 to 1.0)
     var dragFraction by remember { mutableStateOf(0f) }
 
@@ -2846,7 +3149,7 @@ fun PdfVerticalScroller(
 
     BoxWithConstraints(
         modifier = modifier
-            .width(100.dp)
+            .width(60.dp)
             .fillMaxHeight()
             .padding(vertical = 120.dp) // Avoid overlapping with top capsule and bottom floating bar
     ) {
@@ -2854,7 +3157,7 @@ fun PdfVerticalScroller(
         if (totalHeightPx <= 0f) return@BoxWithConstraints
 
         // Vertical Track (on the right side)
-        // We place the track at x = 84.dp (which is 16.dp from the right edge)
+        // We place the track at x = 44.dp (which is 16.dp from the right edge of a 60.dp container)
         val trackWidth = 4.dp
 
         // Draw track and progress
@@ -2876,9 +3179,9 @@ fun PdfVerticalScroller(
         }
 
         // Draggable Teardrop Handle
-        // The teardrop handle has width = 75.dp, height = 48.dp
+        // The teardrop handle has width = 50.dp, height = 32.dp
         // Its vertical position is proportional to currentFraction
-        val handleHeight = 48.dp
+        val handleHeight = 32.dp
         val maxOffsetPx = totalHeightPx - with(LocalDensity.current) { handleHeight.toPx() }
         val handleOffsetPx = currentFraction * maxOffsetPx
 
@@ -2892,14 +3195,14 @@ fun PdfVerticalScroller(
                 .pointerInput(totalPages) {
                     detectDragGestures(
                         onDragStart = {
-                            isDragging = true
+                            onDraggingChanged(true)
                             dragFraction = targetFraction
                         },
                         onDragEnd = {
-                            isDragging = false
+                            onDraggingChanged(false)
                         },
                         onDragCancel = {
-                            isDragging = false
+                            onDraggingChanged(false)
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
@@ -2915,7 +3218,7 @@ fun PdfVerticalScroller(
                         }
                     )
                 }
-                .size(width = 75.dp, height = handleHeight)
+                .size(width = 50.dp, height = handleHeight)
                 .drawBehind {
                     // Draw custom teardrop pointing left (bulb on the right, point on the left)
                     val r = size.height / 2f
@@ -2943,18 +3246,18 @@ fun PdfVerticalScroller(
                     )
                 }
         ) {
-            // Text centered inside the round bulb (the rightmost 48.dp)
+            // Text centered inside the round bulb (the rightmost 32.dp)
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(48.dp),
+                    .size(32.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "${if (isDragging) (1 + (dragFraction * (totalPages - 1))).roundToInt().coerceIn(1, totalPages) else currentPage}",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    fontSize = 11.sp
                 )
             }
         }
@@ -2995,6 +3298,7 @@ fun PdfWebView(
     onPageChanged: (page: Int, total: Int) -> Unit,
     onSearchMatchesCount: (current: Int, total: Int) -> Unit,
     onSearchStateChanged: (state: Int, previous: Boolean) -> Unit,
+    onLinkClicked: (url: String, text: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -3044,7 +3348,8 @@ fun PdfWebView(
                     AndroidBridge(
                         onPageChanged = onPageChanged,
                         onSearchMatchesCount = onSearchMatchesCount,
-                        onSearchStateChanged = onSearchStateChanged
+                        onSearchStateChanged = onSearchStateChanged,
+                        onLinkClicked = onLinkClicked
                     ),
                     "AndroidBridge"
                 )
@@ -3356,8 +3661,66 @@ private fun injectPdfBridge(webView: WebView?) {
                 }
             }
 
+            function setupScrollListener() {
+                try {
+                    let container = document.getElementById('viewerContainer');
+                    if (container) {
+                        container.addEventListener('scroll', () => {
+                            try {
+                                if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+                                    let page = window.PDFViewerApplication.pdfViewer.currentPageNumber;
+                                    let total = window.PDFViewerApplication.pdfViewer.pagesCount || (window.PDFViewerApplication.pdfDocument && window.PDFViewerApplication.pdfDocument.numPages) || 1;
+                                    if (page && (page !== lastReportedPage || total !== lastReportedTotal)) {
+                                        reportPage(page, total);
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("Scroll listener run error: " + e.message);
+                            }
+                        }, { passive: true });
+                    } else {
+                        setTimeout(setupScrollListener, 200);
+                    }
+                } catch (e) {
+                    console.error("Scroll listener setup error: " + e.message);
+                }
+            }
+
+            function setupLinkInterceptor() {
+                try {
+                    let container = document.getElementById('viewer');
+                    if (!container) {
+                        container = document.body;
+                    }
+                    if (container) {
+                        container.addEventListener('click', (e) => {
+                            let target = e.target;
+                            while (target && target.tagName !== 'A') {
+                                target = target.parentElement;
+                            }
+                            if (target && target.href) {
+                                let url = target.href;
+                                let text = target.innerText || target.textContent || "";
+                                text = text.trim();
+                                if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    window.AndroidBridge.onLinkClicked(url, text);
+                                }
+                            }
+                        }, true); // useCapture to catch it early
+                    } else {
+                        setTimeout(setupLinkInterceptor, 200);
+                    }
+                } catch (e) {
+                    console.error("Link interceptor setup error: " + e.message);
+                }
+            }
+
             poll();
             registerEvents();
+            setupScrollListener();
+            setupLinkInterceptor();
         })();
     """.trimIndent()
 
