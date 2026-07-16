@@ -1291,9 +1291,9 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun onScrollProgress(fraction: Float) {
+    fun onScrollProgress(fraction: Double) {
         handler.post {
-            onScrollProgress(fraction)
+            onScrollProgress(fraction.toFloat())
         }
     }
 }
@@ -2769,7 +2769,8 @@ fun isAudioUrl(url: String): Boolean {
            lower.contains("/audio/") || lower.contains("/sound/") || lower.contains("/sounds/") || lower.contains("pronounce") || lower.contains("pronunciation") ||
            lower.contains("translate_tts") || lower.contains("speech") || lower.contains("voice") || lower.contains(".mp3?") || lower.contains(".wav?") ||
            lower.contains("speak") || lower.contains("audio") || lower.contains("tts") || lower.contains("sound") || lower.contains("pronun") ||
-           lower.contains("anbricht") || lower.contains("download")
+           lower.contains("anbricht") || lower.contains("download") || lower.contains("arabisch") || lower.contains("deutsch") ||
+           lower.contains("duden") || lower.contains("dict.cc")
 }
 
 @Composable
@@ -3749,22 +3750,24 @@ private fun injectPdfBridge(webView: WebView?) {
 
             function setupLinkInterceptor() {
                 try {
-                    document.addEventListener('click', (e) => {
-                        let target = e.target;
-                        while (target && target.tagName !== 'A') {
-                            target = target.parentElement;
-                        }
-                        if (target && target.href) {
-                            let url = target.href;
-                            if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('appassets.androidplatform.net/pdfjs/web/viewer.html#')) {
-                                let text = target.innerText || target.textContent || "";
-                                text = text.trim();
-                                if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    window.AndroidBridge.onLinkClicked(url, text);
+                    window.addEventListener('click', (e) => {
+                        try {
+                            if (!e.target) return;
+                            let anchor = e.target.closest ? e.target.closest('a') : null;
+                            if (anchor && anchor.href) {
+                                let url = anchor.href;
+                                if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('appassets.androidplatform.net')) {
+                                    let text = anchor.innerText || anchor.textContent || "";
+                                    text = text.trim();
+                                    if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        window.AndroidBridge.onLinkClicked(url, text);
+                                    }
                                 }
                             }
+                        } catch (err) {
+                            console.error("Window click interceptor error: " + err.message);
                         }
                     }, true); // useCapture to catch it early
                 } catch (e) {
@@ -3775,12 +3778,38 @@ private fun injectPdfBridge(webView: WebView?) {
             function setupLinkServiceOverride() {
                 try {
                     if (window.PDFViewerApplication && window.PDFViewerApplication.linkService) {
-                        window.PDFViewerApplication.linkService.openExternalLink = function(url) {
-                            console.log("PDFJS intercepted openExternalLink: " + url);
-                            if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
-                                window.AndroidBridge.onLinkClicked(url, "");
+                        let linkService = window.PDFViewerApplication.linkService;
+                        if (!linkService.hasLinkOverride) {
+                            linkService.hasLinkOverride = true;
+                            
+                            let originalAddLinkAttributes = linkService.addLinkAttributes;
+                            if (originalAddLinkAttributes) {
+                                linkService.addLinkAttributes = function(link, url, newWindow) {
+                                    try {
+                                        originalAddLinkAttributes.apply(this, arguments);
+                                        if (link && url) {
+                                            link.addEventListener('click', (e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                let text = link.innerText || link.textContent || "";
+                                                if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
+                                                    window.AndroidBridge.onLinkClicked(url, text.trim());
+                                                }
+                                            }, true);
+                                        }
+                                    } catch (err) {
+                                        console.error("Error in overridden addLinkAttributes: " + err.message);
+                                    }
+                                };
                             }
-                        };
+
+                            linkService.openExternalLink = function(url) {
+                                console.log("PDFJS intercepted openExternalLink: " + url);
+                                if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
+                                    window.AndroidBridge.onLinkClicked(url, "");
+                                }
+                            };
+                        }
                     } else {
                         setTimeout(setupLinkServiceOverride, 200);
                     }
