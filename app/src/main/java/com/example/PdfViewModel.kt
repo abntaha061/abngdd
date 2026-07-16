@@ -67,25 +67,6 @@ class PdfViewModel(private val repository: PdfRepository) : ViewModel() {
         }
     }
 
-    fun openDeviceFile(context: Context, path: String, displayName: String) {
-        val file = File(path)
-        if (!file.exists()) {
-            _error.value = "الملف غير موجود على الجهاز"
-            return
-        }
-        val recentPdf = RecentPdf(
-            title = displayName,
-            sourceUriOrUrl = "file://$path",
-            cachedFilePath = path,
-            fileSize = file.length(),
-            timestamp = System.currentTimeMillis()
-        )
-        viewModelScope.launch {
-            repository.insert(recentPdf)
-        }
-        _currentPdfToView.value = recentPdf
-    }
-
     fun importLocalPdf(context: Context, uri: Uri) {
         _isLoading.value = true
         _error.value = null
