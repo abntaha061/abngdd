@@ -2804,6 +2804,7 @@ fun PdfWebView(
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         applyPdfTheme(view, readingTheme)
+                        injectPdfBridge(view)
                     }
 
                     override fun onReceivedError(
@@ -2820,6 +2821,7 @@ fun PdfWebView(
         },
         update = { webView ->
             applyPdfTheme(webView, readingTheme)
+            injectPdfBridge(webView)
         },
         modifier = modifier
     )
@@ -2832,6 +2834,42 @@ private fun applyPdfTheme(webView: WebView?, theme: String) {
         "sepia" -> "body, #viewerContainer { background-color: #F4ECD8 !important; } .page { background-color: #FCF5E3 !important; filter: sepia(0.6) contrast(0.95) !important; }"
         else -> "body, #viewerContainer { background-color: #F4F4F4 !important; } .page { background-color: #FFFFFF !important; filter: none !important; }"
     }
+    
+    val fullCss = """
+        html, body {
+            overflow: hidden !important;
+            height: 100% !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        .toolbar, #toolbarContainer, #toolbarViewer, .findbar, #findbar, #findbarContainer, 
+        #secondaryToolbar, .secondaryToolbar, .editorParamsToolbar, .doorHanger, .doorHangerRight {
+            display: none !important;
+            height: 0px !important;
+            min-height: 0px !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+            visibility: hidden !important;
+        }
+        #viewerContainer {
+            position: absolute !important;
+            inset: 0px !important;
+            top: 0px !important;
+            bottom: 0px !important;
+            left: 0px !important;
+            right: 0px !important;
+            height: 100% !important;
+            width: 100% !important;
+            --visible-toolbar-height: 0px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+        $css
+    """.trimIndent().replace("\n", " ")
+
     webView?.evaluateJavascript(
         """
         (function() {
@@ -2841,11 +2879,156 @@ private fun applyPdfTheme(webView: WebView?, theme: String) {
                 style.id = 'pdf-custom-theme-style';
                 document.head.appendChild(style);
             }
-            style.textContent = `$css`;
+            style.textContent = `$fullCss`;
         })();
         """.trimIndent(),
         null
     )
+}
+
+private fun injectPdfBridge(webView: WebView?) {
+    val js = """
+        (function() {
+            if (window.hasPdfBridgeInjected) return;
+            window.hasPdfBridgeInjected = true;
+
+            let lastPage = -1;
+            let lastTotal = -1;
+            let lastMatchCurrent = -1;
+            let lastMatchTotal = -1;
+
+            function reportPage(p, t) {
+                try {
+                    if (window.AndroidBridge && typeof window.AndroidBridge.onPageChanged === "function") {
+                        window.AndroidBridge.onPageChanged(p, t);
+                    }
+                } catch (e) {
+                    console.error("PDF_JS_REPORT_ERROR: " + e.message);
+                }
+            }
+
+            function poll() {
+                try {
+                    if (window.PDFViewerApplication) {
+                        // 1. Get current page
+                        let page = 1;
+                        if (window.PDFViewerApplication.pdfViewer) {
+                            page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
+                        } else if (window.PDFViewerApplication.page) {
+                            page = window.PDFViewerApplication.page;
+                        }
+
+                        // 2. Get total pages
+                        let total = 0;
+                        if (window.PDFViewerApplication.pdfDocument) {
+                            total = window.PDFViewerApplication.pdfDocument.numPages || 0;
+                        } else if (window.PDFViewerApplication.pagesCount) {
+                            total = window.PDFViewerApplication.pagesCount;
+                        }
+                        const reportTotal = total || 1;
+
+                        if (page !== lastPage || reportTotal !== lastTotal) {
+                            lastPage = page;
+                            lastTotal = reportTotal;
+                            reportPage(page, reportTotal);
+                        }
+
+                        // 3. Poll search matches
+                        if (window.PDFViewerApplication.findController) {
+                            const fc = window.PDFViewerApplication.findController;
+                            if (fc._selected) {
+                                const pageIdx = fc._selected.pageIdx;
+                                const matchIdx = fc._selected.matchIdx;
+                                let current = 0;
+                                let matchTotal = fc._matchesCountTotal || 0;
+                                if (matchIdx !== -1) {
+                                    for (let i = 0; i < pageIdx; i++) {
+                                        current += (fc._pageMatches && fc._pageMatches[i]) ? fc._pageMatches[i].length : 0;
+                                    }
+                                    current += matchIdx + 1;
+                                }
+                                if (current < 1 || current > matchTotal) {
+                                    current = matchTotal = 0;
+                                }
+
+                                if (current !== lastMatchCurrent || matchTotal !== lastMatchTotal) {
+                                    lastMatchCurrent = current;
+                                    lastMatchTotal = matchTotal;
+                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                        window.AndroidBridge.onSearchMatchesCount(current, matchTotal);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("PDF_JS_POLL_ERROR: " + e.message);
+                }
+                setTimeout(poll, 250);
+            }
+
+            function registerEvents() {
+                try {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.eventBus) {
+                        window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
+                            let total = 0;
+                            if (window.PDFViewerApplication.pdfDocument) {
+                                total = window.PDFViewerApplication.pdfDocument.numPages;
+                            } else if (window.PDFViewerApplication.pagesCount) {
+                                total = window.PDFViewerApplication.pagesCount;
+                            }
+                            reportPage(e.pageNumber, total || 1);
+                        });
+
+                        window.PDFViewerApplication.eventBus.on('pagesinit', () => {
+                            let page = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                            let total = 0;
+                            if (window.PDFViewerApplication.pdfDocument) {
+                                total = window.PDFViewerApplication.pdfDocument.numPages;
+                            } else if (window.PDFViewerApplication.pagesCount) {
+                                total = window.PDFViewerApplication.pagesCount;
+                            }
+                            reportPage(page, total || 1);
+                        });
+
+                        window.PDFViewerApplication.eventBus.on('updatefindmatchescount', (e) => {
+                            try {
+                                const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
+                                const total = (e.matchesCount && typeof e.matchesCount.total === 'number') ? e.matchesCount.total : 0;
+                                if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                    window.AndroidBridge.onSearchMatchesCount(current, total);
+                                }
+                            } catch (err) {}
+                        });
+
+                        window.PDFViewerApplication.eventBus.on('updatefindcontrolstate', (e) => {
+                            try {
+                                if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
+                                    window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
+                                }
+                                if (e.matchesCount) {
+                                    const current = typeof e.matchesCount.current === 'number' ? e.matchesCount.current : 0;
+                                    const total = typeof e.matchesCount.total === 'number' ? e.matchesCount.total : 0;
+                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                        window.AndroidBridge.onSearchMatchesCount(current, total);
+                                    }
+                                }
+                            } catch (err) {}
+                        });
+                    } else {
+                        setTimeout(registerEvents, 100);
+                    }
+                } catch (e) {
+                    console.error("PDF_JS_EVENT_ERROR: " + e.message);
+                }
+            }
+
+            poll();
+            registerEvents();
+        })();
+    """.trimIndent()
+
+    webView?.evaluateJavascript(js, null)
 }
 
 fun sharePdf(context: Context, file: File) {

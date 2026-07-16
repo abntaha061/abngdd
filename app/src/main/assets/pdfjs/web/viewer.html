@@ -33,8 +33,15 @@ See https://github.com/adobe-type-tools/cmap-resources
 
     <link rel="stylesheet" href="viewer.css">
     <style>
-      /* Complete override to hide default PDF.js toolbar elements while preserving find/search functionality */
-      .toolbar, #toolbarContainer, #secondaryToolbar, .secondaryToolbar, .editorParamsToolbar, .doorHanger, .doorHangerRight {
+      /* Complete override to disable document/body scroll and hide default toolbar */
+      html, body {
+          overflow: hidden !important;
+          height: 100% !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+      }
+      .toolbar, #toolbarContainer, #toolbarViewer, #secondaryToolbar, .secondaryToolbar, .editorParamsToolbar, .doorHanger, .doorHangerRight {
           display: none !important;
           height: 0px !important;
           min-height: 0px !important;
@@ -52,8 +59,14 @@ See https://github.com/adobe-type-tools/cmap-resources
           display: none !important;
       }
       #viewerContainer {
+          position: absolute !important;
+          inset: 0px !important;
           top: 0px !important;
           bottom: 0px !important;
+          left: 0px !important;
+          right: 0px !important;
+          height: 100% !important;
+          width: 100% !important;
           --visible-toolbar-height: 0px !important;
           overflow-y: auto !important;
           overflow-x: hidden !important;
