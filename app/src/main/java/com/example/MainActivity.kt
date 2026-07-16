@@ -2725,94 +2725,86 @@ fun AutoSizeText(
 }
 
 fun isDirectAudioUrl(url: String): Boolean {
-    val lower = url.lowercase()
-    
-    // If it's a web page of a known dictionary, it's not a direct audio file unless it points to an audio resource
-    if (lower.contains("arabdict.com") && !lower.endsWith(".mp3") && !lower.contains(".mp3?")) {
-        return false
-    }
-    if (lower.contains("dict.cc") && !lower.endsWith(".mp3") && !lower.contains(".mp3?")) {
-        return false
-    }
-    if (lower.contains("duden.de") && !lower.endsWith(".mp3") && !lower.contains(".mp3?")) {
-        return false
-    }
-
-    return lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".ogg") || lower.endsWith(".aac") ||
-           lower.contains(".mp3?") || lower.contains(".wav?") || lower.contains("/audio/") || lower.contains("/sound/") || lower.contains("/sounds/") ||
-           lower.contains("translate_tts") || lower.contains("google.com/speech") || lower.contains("google.com/voice") || lower.contains("translate.google")
+    val cleanUrl = url.lowercase()
+    return cleanUrl.endsWith(".mp3") || 
+           cleanUrl.endsWith(".wav") || 
+           cleanUrl.endsWith(".ogg") || 
+           cleanUrl.endsWith(".m4a") || 
+           cleanUrl.endsWith(".aac") ||
+           cleanUrl.contains(".mp3?") ||
+           cleanUrl.contains(".wav?") ||
+           cleanUrl.contains("audio") || 
+           cleanUrl.contains("pronounce") || 
+           cleanUrl.contains("pronunciation") || 
+           cleanUrl.contains("sound") ||
+           cleanUrl.contains("voice") ||
+           cleanUrl.contains("translate_tts") ||
+           cleanUrl.contains("speech") ||
+           cleanUrl.contains("tts")
 }
 
 fun extractWordFromAudioUrl(url: String, text: String): String {
-    val cleanText = text.trim()
-    if (cleanText.isNotEmpty() && cleanText.length < 35 && !cleanText.contains("http") && !cleanText.contains("www") && !cleanText.contains("/")) {
-        return cleanText
-    }
-
-    try {
-        val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
-        
-        // Handle Google Translate TTS
-        if (decodedUrl.contains("translate_tts") || decodedUrl.contains("translate.google")) {
-            val uri = android.net.Uri.parse(url)
-            val qParam = uri.getQueryParameter("q")
-            if (!qParam.isNullOrEmpty()) {
-                return qParam
-            }
-        }
-        
-        // Handle direct file paths
-        val uri = android.net.Uri.parse(url)
-        val path = uri.path ?: ""
-        val lastSegment = path.substringAfterLast("/")
-        if (lastSegment.isNotEmpty()) {
-            val filenameWithoutExt = lastSegment.substringBeforeLast(".")
-            if (filenameWithoutExt.isNotEmpty()) {
-                return filenameWithoutExt.replace("_", " ").replace("-", " ").trim()
-            }
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("WordExtractor", "Error extracting word: ${e.message}")
-    }
-
+    val word = extractGermanWord(url, text)
+    if (word.isNotEmpty()) return word
     return "نطق"
 }
 
 fun extractGermanWord(url: String, text: String): String {
+    val cleanText = text.trim()
+    
+    // 1. If text is a valid German word (not empty, doesn't contain url/www, not just symbols)
+    if (cleanText.isNotEmpty() && 
+        cleanText.length in 2..45 && 
+        !cleanText.contains("http") && 
+        !cleanText.contains("www") && 
+        !cleanText.contains("/") &&
+        cleanText != "Play" && 
+        cleanText != "Audio" && 
+        cleanText != "Nutzungsbedingungen" && 
+        cleanText != "Datenschutz"
+    ) {
+        // Strip out common non-word characters/symbols
+        val stripped = cleanText.replace(Regex("[🔊🎧▶️➔➔✔]"), "").trim()
+        if (stripped.length >= 2) {
+            return stripped
+        }
+    }
+
+    // 2. Try extracting from URL query parameters
     try {
         val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
-        val lowerUrl = decodedUrl.lowercase()
-        
-        if (lowerUrl.contains("arabdict.com")) {
-            val segment = decodedUrl.substringAfterLast("/")
-            if (segment.isNotEmpty() && !segment.contains("?") && !segment.contains("=")) {
-                return segment
+        val uri = android.net.Uri.parse(url)
+        for (param in listOf("q", "text", "word", "query", "string", "term", "s")) {
+            val v = uri.getQueryParameter(param)
+            if (!v.isNullOrBlank() && v.trim().length in 2..45 && !v.contains("/")) {
+                return v.trim()
             }
         }
         
-        if (lowerUrl.contains("dict.cc")) {
-            val uri = android.net.Uri.parse(url)
-            val sParam = uri.getQueryParameter("s")
-            if (!sParam.isNullOrEmpty()) {
-                return sParam
-            }
-        }
-        
-        if (lowerUrl.contains("duden.de")) {
-            val segment = decodedUrl.substringAfterLast("/")
-            if (segment.isNotEmpty() && !segment.contains("?") && !segment.contains("=")) {
-                return segment
+        // 3. Try parsing path segments (e.g., arabdict.com/ar/deutsch-arabisch/Wort)
+        val pathSegments = uri.pathSegments
+        if (pathSegments != null) {
+            for (segment in pathSegments.reversed()) {
+                if (segment.isNotEmpty() && 
+                    segment.length in 2..45 && 
+                    segment != "deutsch-arabisch" && 
+                    segment != "german-arabic" && 
+                    segment != "speak.php" && 
+                    segment != "rec_play.php" &&
+                    !segment.contains("?") && 
+                    !segment.contains("=")
+                ) {
+                    val decodedSegment = java.net.URLDecoder.decode(segment, "UTF-8").trim()
+                    if (decodedSegment.length in 2..45 && !decodedSegment.matches(Regex("^[0-9]+$"))) {
+                        return decodedSegment
+                    }
+                }
             }
         }
     } catch (e: Exception) {
         android.util.Log.e("WordExtractor", "Error extracting word: ${e.message}")
     }
-    
-    val cleanText = text.trim()
-    if (cleanText.isNotEmpty() && cleanText.length < 30 && !cleanText.contains("http") && !cleanText.contains("www")) {
-        return cleanText
-    }
-    
+
     return ""
 }
 
@@ -4053,26 +4045,45 @@ private fun injectPdfBridge(webView: WebView?) {
 
             function setupLinkInterceptor() {
                 try {
-                    window.addEventListener('click', (e) => {
-                        try {
-                            if (!e.target) return;
-                            let anchor = e.target.closest ? e.target.closest('a') : null;
-                            if (anchor && anchor.href) {
-                                let url = anchor.href;
-                                if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('appassets.androidplatform.net')) {
-                                    let text = anchor.innerText || anchor.textContent || "";
-                                    text = text.trim();
-                                    if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        window.AndroidBridge.onLinkClicked(url, text);
-                                    }
+                    document.addEventListener('click', function(e) {
+                        var target = e.target;
+                        var isLink = false;
+                        var clickedLinkNode = null;
+                        while (target) {
+                            if (target.tagName === 'A' && target.getAttribute('href')) {
+                                isLink = true;
+                                clickedLinkNode = target;
+                                break;
+                            }
+                            target = target.parentNode;
+                        }
+                        if (isLink && clickedLinkNode) {
+                            var href = clickedLinkNode.getAttribute('href');
+                            var text = "";
+                            try {
+                                var originalPointerEvents = clickedLinkNode.style.pointerEvents;
+                                clickedLinkNode.style.pointerEvents = 'none';
+                                var elementUnder = document.elementFromPoint(e.clientX, e.clientY);
+                                clickedLinkNode.style.pointerEvents = originalPointerEvents || '';
+                                if (elementUnder) {
+                                    text = elementUnder.textContent || elementUnder.innerText || "";
+                                }
+                            } catch (err) {
+                                console.error("Pointer events word extraction error: " + err);
+                            }
+                            if (!text || text.trim().length === 0) {
+                                text = clickedLinkNode.textContent || clickedLinkNode.innerText || "";
+                            }
+                            if (href && href.trim().length > 0 && !href.startsWith('#') && !href.startsWith('javascript:')) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
+                                    window.AndroidBridge.onLinkClicked(href, text.trim());
+                                    return;
                                 }
                             }
-                        } catch (err) {
-                            console.error("Window click interceptor error: " + err.message);
                         }
-                    }, true); // useCapture to catch it early
+                    }, true);
                 } catch (e) {
                     console.error("Link interceptor setup error: " + e.message);
                 }
