@@ -2892,134 +2892,198 @@ private fun injectPdfBridge(webView: WebView?) {
             if (window.hasPdfBridgeInjected) return;
             window.hasPdfBridgeInjected = true;
 
-            let lastPage = -1;
-            let lastTotal = -1;
-            let lastMatchCurrent = -1;
-            let lastMatchTotal = -1;
+            let lastReportedPage = -1;
+            let lastReportedTotal = -1;
+            let lastReportedMatchCurrent = -1;
+            let lastReportedMatchTotal = -1;
+
+            function parsePageNum(str) {
+                if (!str) return 0;
+                const arabicDigits = {
+                    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+                    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+                };
+                let cleanStr = '';
+                for (let i = 0; i < str.length; i++) {
+                    const char = str[i];
+                    if (arabicDigits[char] !== undefined) {
+                        cleanStr += arabicDigits[char];
+                    } else if (char >= '0' && char <= '9') {
+                        cleanStr += char;
+                    }
+                }
+                return parseInt(cleanStr) || 0;
+            }
 
             function reportPage(p, t) {
                 try {
                     if (window.AndroidBridge && typeof window.AndroidBridge.onPageChanged === "function") {
                         window.AndroidBridge.onPageChanged(p, t);
+                        lastReportedPage = p;
+                        lastReportedTotal = t;
+                        return true;
                     }
                 } catch (e) {
                     console.error("PDF_JS_REPORT_ERROR: " + e.message);
                 }
+                return false;
+            }
+
+            function reportSearchMatches(current, total) {
+                try {
+                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                        window.AndroidBridge.onSearchMatchesCount(current, total);
+                        lastReportedMatchCurrent = current;
+                        lastReportedMatchTotal = total;
+                        return true;
+                    }
+                } catch (e) {
+                    console.error("PDF_JS_REPORT_SEARCH_ERROR: " + e.message);
+                }
+                return false;
             }
 
             function poll() {
+                if (!window.PDFViewerApplication) {
+                    setTimeout(poll, 250);
+                    return;
+                }
+
+                // 1. Poll Page and Total Pages
                 try {
-                    if (window.PDFViewerApplication) {
-                        // 1. Get current page
-                        let page = 1;
-                        if (window.PDFViewerApplication.pdfViewer) {
-                            page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
-                        } else if (window.PDFViewerApplication.page) {
-                            page = window.PDFViewerApplication.page;
+                    let page = 1;
+                    if (window.PDFViewerApplication.pdfViewer && typeof window.PDFViewerApplication.pdfViewer.currentPageNumber === 'number') {
+                        page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
+                    } else if (typeof window.PDFViewerApplication.page === 'number') {
+                        page = window.PDFViewerApplication.page || 1;
+                    } else {
+                        const pageNumEl = document.getElementById("pageNumber");
+                        if (pageNumEl && pageNumEl.value) {
+                            page = parsePageNum(pageNumEl.value) || 1;
                         }
+                    }
 
-                        // 2. Get total pages
-                        let total = 0;
-                        if (window.PDFViewerApplication.pdfDocument) {
-                            total = window.PDFViewerApplication.pdfDocument.numPages || 0;
-                        } else if (window.PDFViewerApplication.pagesCount) {
-                            total = window.PDFViewerApplication.pagesCount;
+                    let total = 0;
+                    if (window.PDFViewerApplication.pdfDocument && typeof window.PDFViewerApplication.pdfDocument.numPages === 'number') {
+                        total = window.PDFViewerApplication.pdfDocument.numPages;
+                    } else if (window.PDFViewerApplication.pdfViewer && typeof window.PDFViewerApplication.pdfViewer.pagesCount === 'number') {
+                        total = window.PDFViewerApplication.pdfViewer.pagesCount;
+                    } else if (typeof window.PDFViewerApplication.pagesCount === 'number') {
+                        total = window.PDFViewerApplication.pagesCount;
+                    }
+                    
+                    if (!total) {
+                        const numPagesEl = document.getElementById("numPages");
+                        if (numPagesEl && numPagesEl.textContent) {
+                            total = parsePageNum(numPagesEl.textContent) || 0;
                         }
-                        const reportTotal = total || 1;
+                    }
 
-                        if (page !== lastPage || reportTotal !== lastTotal) {
-                            lastPage = page;
-                            lastTotal = reportTotal;
-                            reportPage(page, reportTotal);
-                        }
+                    const reportTotal = total || 1;
 
-                        // 3. Poll search matches
-                        if (window.PDFViewerApplication.findController) {
-                            const fc = window.PDFViewerApplication.findController;
-                            if (fc._selected) {
-                                const pageIdx = fc._selected.pageIdx;
-                                const matchIdx = fc._selected.matchIdx;
-                                let current = 0;
-                                let matchTotal = fc._matchesCountTotal || 0;
-                                if (matchIdx !== -1) {
-                                    for (let i = 0; i < pageIdx; i++) {
-                                        current += (fc._pageMatches && fc._pageMatches[i]) ? fc._pageMatches[i].length : 0;
-                                    }
-                                    current += matchIdx + 1;
-                                }
-                                if (current < 1 || current > matchTotal) {
-                                    current = matchTotal = 0;
-                                }
+                    if (page !== lastReportedPage || reportTotal !== lastReportedTotal) {
+                        reportPage(page, reportTotal);
+                    }
+                } catch (e) {
+                    console.error("PDF_JS_POLL_PAGE_ERROR: " + e.message);
+                }
 
-                                if (current !== lastMatchCurrent || matchTotal !== lastMatchTotal) {
-                                    lastMatchCurrent = current;
-                                    lastMatchTotal = matchTotal;
-                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
-                                        window.AndroidBridge.onSearchMatchesCount(current, matchTotal);
-                                    }
+                // 2. Poll Search Matches Count
+                try {
+                    if (window.PDFViewerApplication.findController) {
+                        const fc = window.PDFViewerApplication.findController;
+                        if (fc && fc._selected) {
+                            const pageIdx = fc._selected.pageIdx;
+                            const matchIdx = fc._selected.matchIdx;
+                            let current = 0;
+                            let matchTotal = fc._matchesCountTotal || 0;
+                            if (typeof pageIdx === 'number' && typeof matchIdx === 'number' && matchIdx !== -1) {
+                                for (let i = 0; i < pageIdx; i++) {
+                                    current += (fc._pageMatches && fc._pageMatches[i]) ? fc._pageMatches[i].length : 0;
                                 }
+                                current += matchIdx + 1;
+                            }
+                            if (current < 1 || current > matchTotal) {
+                                current = matchTotal = 0;
+                            }
+
+                            if (current !== lastReportedMatchCurrent || matchTotal !== lastReportedMatchTotal) {
+                                reportSearchMatches(current, matchTotal);
                             }
                         }
                     }
                 } catch (e) {
-                    console.error("PDF_JS_POLL_ERROR: " + e.message);
+                    console.error("PDF_JS_POLL_FIND_ERROR: " + e.message);
                 }
+
                 setTimeout(poll, 250);
             }
 
             function registerEvents() {
                 try {
                     if (window.PDFViewerApplication && window.PDFViewerApplication.eventBus) {
-                        window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
-                            let total = 0;
-                            if (window.PDFViewerApplication.pdfDocument) {
-                                total = window.PDFViewerApplication.pdfDocument.numPages;
-                            } else if (window.PDFViewerApplication.pagesCount) {
-                                total = window.PDFViewerApplication.pagesCount;
-                            }
-                            reportPage(e.pageNumber, total || 1);
-                        });
-
-                        window.PDFViewerApplication.eventBus.on('pagesinit', () => {
-                            let page = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
-                            let total = 0;
-                            if (window.PDFViewerApplication.pdfDocument) {
-                                total = window.PDFViewerApplication.pdfDocument.numPages;
-                            } else if (window.PDFViewerApplication.pagesCount) {
-                                total = window.PDFViewerApplication.pagesCount;
-                            }
-                            reportPage(page, total || 1);
-                        });
-
-                        window.PDFViewerApplication.eventBus.on('updatefindmatchescount', (e) => {
-                            try {
-                                const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
-                                const total = (e.matchesCount && typeof e.matchesCount.total === 'number') ? e.matchesCount.total : 0;
-                                if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
-                                    window.AndroidBridge.onSearchMatchesCount(current, total);
+                        const registerBusEvents = (bus) => {
+                            bus.on('pagechanging', (e) => {
+                                let total = 0;
+                                if (window.PDFViewerApplication.pdfDocument) {
+                                    total = window.PDFViewerApplication.pdfDocument.numPages;
+                                } else if (window.PDFViewerApplication.pagesCount) {
+                                    total = window.PDFViewerApplication.pagesCount;
                                 }
-                            } catch (err) {}
-                        });
-
-                        window.PDFViewerApplication.eventBus.on('updatefindcontrolstate', (e) => {
-                            try {
-                                if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
-                                    window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
-                                }
-                                if (e.matchesCount) {
-                                    const current = typeof e.matchesCount.current === 'number' ? e.matchesCount.current : 0;
-                                    const total = typeof e.matchesCount.total === 'number' ? e.matchesCount.total : 0;
-                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
-                                        window.AndroidBridge.onSearchMatchesCount(current, total);
+                                if (!total) {
+                                    const numPagesEl = document.getElementById("numPages");
+                                    if (numPagesEl && numPagesEl.textContent) {
+                                        total = parsePageNum(numPagesEl.textContent);
                                     }
                                 }
-                            } catch (err) {}
-                        });
+                                reportPage(e.pageNumber, total || 1);
+                            });
+
+                            bus.on('pagesinit', () => {
+                                let page = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                                let total = 0;
+                                if (window.PDFViewerApplication.pdfDocument) {
+                                    total = window.PDFViewerApplication.pdfDocument.numPages;
+                                } else if (window.PDFViewerApplication.pagesCount) {
+                                    total = window.PDFViewerApplication.pagesCount;
+                                }
+                                if (!total) {
+                                    const numPagesEl = document.getElementById("numPages");
+                                    if (numPagesEl && numPagesEl.textContent) {
+                                        total = parsePageNum(numPagesEl.textContent);
+                                    }
+                                }
+                                reportPage(page, total || 1);
+                            });
+
+                            bus.on('updatefindmatchescount', (e) => {
+                                try {
+                                    const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
+                                    const total = (e.matchesCount && typeof e.matchesCount.total === 'number') ? e.matchesCount.total : 0;
+                                    reportSearchMatches(current, total);
+                                } catch (err) {}
+                            });
+
+                            bus.on('updatefindcontrolstate', (e) => {
+                                try {
+                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
+                                        window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
+                                    }
+                                    if (e.matchesCount) {
+                                        const current = typeof e.matchesCount.current === 'number' ? e.matchesCount.current : 0;
+                                        const total = typeof e.matchesCount.total === 'number' ? e.matchesCount.total : 0;
+                                        reportSearchMatches(current, total);
+                                    }
+                                } catch (err) {}
+                            });
+                        };
+
+                        registerBusEvents(window.PDFViewerApplication.eventBus);
                     } else {
                         setTimeout(registerEvents, 100);
                     }
                 } catch (e) {
-                    console.error("PDF_JS_EVENT_ERROR: " + e.message);
+                    console.error("PDF_JS_INIT_ERROR: " + e.message);
                 }
             }
 
