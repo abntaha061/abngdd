@@ -1920,6 +1920,7 @@ fun DetailRow(
     label: String,
     value: String
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1928,15 +1929,33 @@ fun DetailRow(
                 .fillMaxWidth()
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = label, 
+                style = MaterialTheme.typography.bodyMedium, 
+                fontWeight = FontWeight.Bold, 
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(0.35f)
+            )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp),
-                maxLines = 1,
+                modifier = Modifier
+                    .weight(0.65f)
+                    .padding(start = 16.dp)
+                    .clickable {
+                        try {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText(label, value)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "تم نسخ $label بنجاح", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            // Ignore clipboard errors
+                        }
+                    },
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.End
             )
@@ -2761,14 +2780,112 @@ fun PdfWebView(
                         view?.evaluateJavascript(
                             """
                             (function() {
+                                let lastPage = -1;
+                                let lastTotal = -1;
+                                let lastMatchCurrent = -1;
+                                let lastMatchTotal = -1;
+
+                                function reportPage(p, t) {
+                                    try {
+                                        console.log("PDF_JS_REPORT: page=" + p + " total=" + t + " hasBridge=" + !!window.AndroidBridge);
+                                        if (window.AndroidBridge && typeof window.AndroidBridge.onPageChanged === "function") {
+                                            window.AndroidBridge.onPageChanged(p, t);
+                                        } else {
+                                            console.warn("PDF_JS_REPORT_WARN: AndroidBridge not found or onPageChanged is not a function");
+                                        }
+                                    } catch (e) {
+                                        console.error("PDF_JS_REPORT_ERROR: reportPage failed: " + e.message);
+                                    }
+                                }
+
+                                function poll() {
+                                    try {
+                                        if (window.PDFViewerApplication) {
+                                            // 1. Get current page (try multiple sources)
+                                            let page = 1;
+                                            if (window.PDFViewerApplication.pdfViewer) {
+                                                page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
+                                            } else if (window.PDFViewerApplication.page) {
+                                                page = window.PDFViewerApplication.page;
+                                            } else {
+                                                const pageNumEl = document.getElementById("pageNumber");
+                                                if (pageNumEl && pageNumEl.value) {
+                                                    page = parseInt(pageNumEl.value) || 1;
+                                                }
+                                            }
+
+                                            // 2. Get total pages (try multiple sources)
+                                            let total = 0;
+                                            if (window.PDFViewerApplication.pdfDocument) {
+                                                total = window.PDFViewerApplication.pdfDocument.numPages || 0;
+                                            } else if (window.PDFViewerApplication.pagesCount) {
+                                                total = window.PDFViewerApplication.pagesCount;
+                                            }
+                                            
+                                            if (!total) {
+                                                const numPagesEl = document.getElementById("numPages");
+                                                if (numPagesEl && numPagesEl.textContent) {
+                                                    const numText = numPagesEl.textContent.replace(/[^0-9]/g, '');
+                                                    if (numText) {
+                                                        total = parseInt(numText) || 0;
+                                                    }
+                                                }
+                                            }
+
+                                            const reportTotal = total || 1;
+
+                                            if (page !== lastPage || reportTotal !== lastTotal) {
+                                                lastPage = page;
+                                                lastTotal = reportTotal;
+                                                console.log("PDF_JS_POLL_PAGE_UPDATE: page=" + page + ", total=" + reportTotal);
+                                                reportPage(page, reportTotal);
+                                            }
+
+                                            // Polling search matches count directly from findController internal state
+                                            if (window.PDFViewerApplication.findController) {
+                                                const fc = window.PDFViewerApplication.findController;
+                                                if (fc._selected) {
+                                                    const pageIdx = fc._selected.pageIdx;
+                                                    const matchIdx = fc._selected.matchIdx;
+                                                    let current = 0;
+                                                    let matchTotal = fc._matchesCountTotal || 0;
+                                                    if (matchIdx !== -1) {
+                                                        for (let i = 0; i < pageIdx; i++) {
+                                                            current += (fc._pageMatches && fc._pageMatches[i]) ? fc._pageMatches[i].length : 0;
+                                                        }
+                                                        current += matchIdx + 1;
+                                                    }
+                                                    if (current < 1 || current > matchTotal) {
+                                                        current = matchTotal = 0;
+                                                    }
+
+                                                    if (current !== lastMatchCurrent || matchTotal !== lastMatchTotal) {
+                                                        lastMatchCurrent = current;
+                                                        lastMatchTotal = matchTotal;
+                                                        console.log("PDF_JS_FIND_POLL: Matches updated to current=" + current + ", total=" + matchTotal);
+                                                        if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                                            window.AndroidBridge.onSearchMatchesCount(current, matchTotal);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.error("PDF_JS_POLL_ERROR: polling failed: " + e.message);
+                                    }
+                                    setTimeout(poll, 250);
+                                }
+
                                 function init() {
                                     console.log("PDF_JS_INIT: Checking PDFViewerApplication");
-                                    if (window.PDFViewerApplication && window.PDFViewerApplication.initializedPromise) {
+                                    if (window.PDFViewerApplication) {
                                         console.log("PDF_JS_INIT: PDFViewerApplication found, injecting styles");
+                                        
                                         // 0. Inject fail-safe styles directly into the head to hide the top toolbar and find bar
                                         const style = document.createElement("style");
                                         style.textContent = `
-                                            .toolbar, #toolbarContainer, .findbar, #findbar, #findbarContainer {
+                                            .toolbar, #toolbarContainer, .findbar, #findbar, #findbarContainer, 
+                                            #secondaryToolbar, .secondaryToolbar, .editorParamsToolbar, .doorHanger, .doorHangerRight {
                                                 display: none !important;
                                                 height: 0px !important;
                                                 min-height: 0px !important;
@@ -2808,145 +2925,89 @@ fun PdfWebView(
                                         }`;
                                         document.head.appendChild(themeStyle);
 
-                                        // 2. Register event listeners & fallback polling
-                                        window.PDFViewerApplication.initializedPromise.then(() => {
-                                            console.log("PDF_JS_INIT: initializedPromise resolved");
-                                            const reportPage = (p, t) => {
-                                                try {
-                                                    console.log("PDF_JS_REPORT: page=" + p + " total=" + t + " hasBridge=" + !!window.AndroidBridge);
-                                                    if (window.AndroidBridge && typeof window.AndroidBridge.onPageChanged === "function") {
-                                                        window.AndroidBridge.onPageChanged(p, t);
-                                                    } else {
-                                                        console.warn("PDF_JS_REPORT_WARN: AndroidBridge not found or onPageChanged is not a function");
+                                        // 1. Subscribe to events on the eventBus as a fallback/instant trigger
+                                        try {
+                                            if (window.PDFViewerApplication.eventBus) {
+                                                window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
+                                                    let total = 0;
+                                                    if (window.PDFViewerApplication.pdfDocument) {
+                                                        total = window.PDFViewerApplication.pdfDocument.numPages;
+                                                    } else if (window.PDFViewerApplication.pagesCount) {
+                                                        total = window.PDFViewerApplication.pagesCount;
                                                     }
-                                                } catch (e) {
-                                                    console.error("PDF_JS_REPORT_ERROR: reportPage failed: " + e.message);
-                                                }
-                                            };
+                                                    if (!total) {
+                                                        const numPagesEl = document.getElementById("numPages");
+                                                        if (numPagesEl && numPagesEl.textContent) {
+                                                            const numText = numPagesEl.textContent.replace(/[^0-9]/g, '');
+                                                            if (numText) total = parseInt(numText);
+                                                        }
+                                                    }
+                                                    reportPage(e.pageNumber, total || 1);
+                                                });
 
-                                            // Subscribe to events
-                                            try {
-                                                if (window.PDFViewerApplication.eventBus) {
-                                                    window.PDFViewerApplication.eventBus.on('pagechanging', (e) => {
-                                                        const total = (window.PDFViewerApplication.pdfDocument ? window.PDFViewerApplication.pdfDocument.numPages : 0) || window.PDFViewerApplication.pagesCount || 1;
-                                                        reportPage(e.pageNumber, total);
-                                                    });
+                                                window.PDFViewerApplication.eventBus.on('pagesinit', () => {
+                                                    let page = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                                                    let total = 0;
+                                                    if (window.PDFViewerApplication.pdfDocument) {
+                                                        total = window.PDFViewerApplication.pdfDocument.numPages;
+                                                    } else if (window.PDFViewerApplication.pagesCount) {
+                                                        total = window.PDFViewerApplication.pagesCount;
+                                                    }
+                                                    if (!total) {
+                                                        const numPagesEl = document.getElementById("numPages");
+                                                        if (numPagesEl && numPagesEl.textContent) {
+                                                            const numText = numPagesEl.textContent.replace(/[^0-9]/g, '');
+                                                            if (numText) total = parseInt(numText);
+                                                        }
+                                                    }
+                                                    reportPage(page, total || 1);
+                                                });
 
-                                                    window.PDFViewerApplication.eventBus.on('pagesinit', () => {
-                                                        const p = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
-                                                        const total = (window.PDFViewerApplication.pdfDocument ? window.PDFViewerApplication.pdfDocument.numPages : 0) || window.PDFViewerApplication.pagesCount || 1;
-                                                        reportPage(p, total);
-                                                    });
+                                                window.PDFViewerApplication.eventBus.on('updatefindmatchescount', (e) => {
+                                                    try {
+                                                        const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
+                                                        const total = (e.matchesCount && typeof e.matchesCount.total === 'number') ? e.matchesCount.total : 0;
+                                                        console.log("PDF_JS_FIND: updatefindmatchescount event: current=" + current + ", total=" + total);
+                                                        if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
+                                                            window.AndroidBridge.onSearchMatchesCount(current, total);
+                                                        }
+                                                    } catch (err) {
+                                                        console.error("PDF_JS_FIND_ERROR: updatefindmatchescount: " + err.message);
+                                                    }
+                                                });
 
-                                                    window.PDFViewerApplication.eventBus.on('updatefindmatchescount', (e) => {
-                                                        try {
-                                                            const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
-                                                            const total = (e.matchesCount && typeof e.matchesCount.total === 'number') ? e.matchesCount.total : 0;
-                                                            console.log("PDF_JS_FIND: updatefindmatchescount event: current=" + current + ", total=" + total);
+                                                window.PDFViewerApplication.eventBus.on('updatefindcontrolstate', (e) => {
+                                                    try {
+                                                        console.log("PDF_JS_FIND: updatefindcontrolstate event: state=" + e.state + ", previous=" + e.previous);
+                                                        if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
+                                                            window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
+                                                        }
+                                                        if (e.matchesCount) {
+                                                            const current = typeof e.matchesCount.current === 'number' ? e.matchesCount.current : 0;
+                                                            const total = typeof e.matchesCount.total === 'number' ? e.matchesCount.total : 0;
+                                                            console.log("PDF_JS_FIND: updatefindcontrolstate matches: current=" + current + ", total=" + total);
                                                             if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
                                                                 window.AndroidBridge.onSearchMatchesCount(current, total);
                                                             }
-                                                        } catch (err) {
-                                                            console.error("PDF_JS_FIND_ERROR: updatefindmatchescount: " + err.message);
                                                         }
-                                                    });
-
-                                                    window.PDFViewerApplication.eventBus.on('updatefindcontrolstate', (e) => {
-                                                        try {
-                                                            console.log("PDF_JS_FIND: updatefindcontrolstate event: state=" + e.state + ", previous=" + e.previous);
-                                                            if (window.AndroidBridge && typeof window.AndroidBridge.onSearchStateChanged === 'function') {
-                                                                window.AndroidBridge.onSearchStateChanged(e.state, e.previous);
-                                                            }
-                                                            if (e.matchesCount) {
-                                                                const current = typeof e.matchesCount.current === 'number' ? e.matchesCount.current : 0;
-                                                                const total = typeof e.matchesCount.total === 'number' ? e.matchesCount.total : 0;
-                                                                console.log("PDF_JS_FIND: updatefindcontrolstate matches: current=" + current + ", total=" + total);
-                                                                if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
-                                                                    window.AndroidBridge.onSearchMatchesCount(current, total);
-                                                                }
-                                                            }
-                                                        } catch (err) {
-                                                            console.error("PDF_JS_FIND_ERROR: updatefindcontrolstate: " + err.message);
-                                                        }
-                                                    });
-
-                                                    console.log("PDF_JS_INIT: Event listeners registered");
-                                                }
-                                            } catch (e) {
-                                                console.error("PDF_JS_INIT_ERROR: Event subscription failed: " + e.message);
-                                            }
-
-                                            // 3. Fallback continuous polling to guarantee instantaneous updates (including search matches)
-                                            let lastPage = -1;
-                                            let lastTotal = -1;
-                                            let lastMatchCurrent = -1;
-                                            let lastMatchTotal = -1;
-                                            function poll() {
-                                                try {
-                                                    if (window.PDFViewerApplication) {
-                                                        // Polling page information
-                                                        let page = 1;
-                                                        if (window.PDFViewerApplication.pdfViewer) {
-                                                            page = window.PDFViewerApplication.pdfViewer.currentPageNumber || 1;
-                                                        } else if (window.PDFViewerApplication.page) {
-                                                            page = window.PDFViewerApplication.page;
-                                                        }
-
-                                                        let total = 0;
-                                                        if (window.PDFViewerApplication.pdfDocument) {
-                                                            total = window.PDFViewerApplication.pdfDocument.numPages || 0;
-                                                        } else if (window.PDFViewerApplication.pagesCount) {
-                                                            total = window.PDFViewerApplication.pagesCount;
-                                                        }
-
-                                                        if (page !== lastPage || total !== lastTotal) {
-                                                            lastPage = page;
-                                                            lastTotal = total;
-                                                            reportPage(page, total);
-                                                        }
-
-                                                        // Polling search matches count directly from findController internal state
-                                                        if (window.PDFViewerApplication.findController) {
-                                                            const fc = window.PDFViewerApplication.findController;
-                                                            if (fc._selected) {
-                                                                const pageIdx = fc._selected.pageIdx;
-                                                                const matchIdx = fc._selected.matchIdx;
-                                                                let current = 0;
-                                                                let matchTotal = fc._matchesCountTotal || 0;
-                                                                if (matchIdx !== -1) {
-                                                                    for (let i = 0; i < pageIdx; i++) {
-                                                                        current += (fc._pageMatches && fc._pageMatches[i]) ? fc._pageMatches[i].length : 0;
-                                                                    }
-                                                                    current += matchIdx + 1;
-                                                                }
-                                                                if (current < 1 || current > matchTotal) {
-                                                                    current = matchTotal = 0;
-                                                                }
-
-                                                                if (current !== lastMatchCurrent || matchTotal !== lastMatchTotal) {
-                                                                    lastMatchCurrent = current;
-                                                                    lastMatchTotal = matchTotal;
-                                                                    console.log("PDF_JS_FIND_POLL: Matches updated to current=" + current + ", total=" + matchTotal);
-                                                                    if (window.AndroidBridge && typeof window.AndroidBridge.onSearchMatchesCount === 'function') {
-                                                                        window.AndroidBridge.onSearchMatchesCount(current, matchTotal);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
+                                                    } catch (err) {
+                                                        console.error("PDF_JS_FIND_ERROR: updatefindcontrolstate: " + err.message);
                                                     }
-                                                } catch (e) {
-                                                    console.error("PDF_JS_POLL_ERROR: polling failed: " + e.message);
-                                                }
-                                                setTimeout(poll, 250);
+                                                });
+
+                                                console.log("PDF_JS_INIT: Event listeners registered on eventBus");
                                             }
-                                            poll();
-                                        }).catch(e => {
-                                            console.error("PDF_JS_INIT_ERROR: initializedPromise then failed: " + e.message);
-                                        });
+                                        } catch (e) {
+                                            console.error("PDF_JS_INIT_ERROR: Event subscription failed: " + e.message);
+                                        }
+
+                                        // Start polling immediately
+                                        poll();
                                     } else {
                                         setTimeout(init, 50);
                                     }
                                 }
+
                                 init();
                             })();
                             """.trimIndent(),
