@@ -23,6 +23,29 @@ import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.scale
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,6 +97,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -124,6 +148,8 @@ import com.example.data.PdfRepository
 import com.example.data.RecentPdf
 import com.example.ui.theme.MyApplicationTheme
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // Imports for custom bottom sheets and widgets
 import androidx.compose.material3.ModalBottomSheet
@@ -157,6 +183,14 @@ import android.view.WindowManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+val LavenderPrimary = Color(0xFFB8A6F0)
+val LavenderDark = Color(0xFF8B7AC7)
+val LavenderLight = Color(0xFFE8DFFC)
+val AccentYellow = Color(0xFFFFC94A)
+val YellowSoft = Color(0xFFFFE29A)
+val BgDark = Color(0xFF14121C)
+val SurfaceDark = Color(0xFF1E1B2E)
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: PdfViewModel
@@ -213,6 +247,14 @@ class MainActivity : ComponentActivity() {
                 val errorMessage by viewModel.error.collectAsStateWithLifecycle()
                 val context = LocalContext.current
 
+                var hasPermission by remember { mutableStateOf(hasStoragePermission(context)) }
+
+                val manageStorageLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) {
+                    hasPermission = hasStoragePermission(context)
+                }
+
                 // Handle error messages with native Toast feedback
                 LaunchedEffect(errorMessage) {
                     errorMessage?.let {
@@ -221,51 +263,60 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (currentPdf == null) {
-                        HomeDashboard(
-                            viewModel = viewModel,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        PdfReaderScreen(
-                            pdf = currentPdf!!,
-                            viewModel = viewModel,
-                            onBack = { viewModel.resetCurrentPdf() },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                if (!hasPermission) {
+                    WelcomeOnboardingScreen(
+                        onRequestPermission = {
+                            requestAllFilesPermission(context, manageStorageLauncher)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (currentPdf == null) {
+                            MainNavigationScreen(
+                                viewModel = viewModel,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            PdfReaderScreen(
+                                pdf = currentPdf!!,
+                                viewModel = viewModel,
+                                onBack = { viewModel.resetCurrentPdf() },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
 
-                    // Global loading spinner overlay
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .clickable(enabled = false) {},
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        // Global loading spinner overlay
+                        if (isLoading) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                                    .clickable(enabled = false) {},
+                                contentAlignment = Alignment.Center
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                                Card(
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                                 ) {
-                                    CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = "جاري تحضير ملف PDF...",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    Column(
+                                        modifier = Modifier.padding(24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "جاري تحضير ملف PDF...",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -291,16 +342,373 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+data class DevicePdfFile(
+    val name: String,
+    val path: String,
+    val size: Long,
+    val dateModified: Long
+)
+
+suspend fun scanPdfFilesOnDevice(context: Context): List<DevicePdfFile> = withContext(Dispatchers.IO) {
+    val results = mutableListOf<DevicePdfFile>()
+    val uri = android.provider.MediaStore.Files.getContentUri("external")
+    val projection = arrayOf(
+        android.provider.MediaStore.Files.FileColumns.DISPLAY_NAME,
+        android.provider.MediaStore.Files.FileColumns.SIZE,
+        android.provider.MediaStore.Files.FileColumns.DATA,
+        android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED
+    )
+    val selection = "${android.provider.MediaStore.Files.FileColumns.MIME_TYPE} = ?"
+    val selectionArgs = arrayOf("application/pdf")
+    val sortOrder = "${android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+
+    try {
+        context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(android.provider.MediaStore.Files.FileColumns.SIZE)
+            val dataIndex = cursor.getColumnIndex(android.provider.MediaStore.Files.FileColumns.DATA)
+            val dateIndex = cursor.getColumnIndex(android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED)
+
+            while (cursor.moveToNext()) {
+                val path = if (dataIndex != -1) cursor.getString(dataIndex) else ""
+                if (path.isEmpty()) continue
+                val file = File(path)
+                if (!file.exists()) continue
+
+                val name = if (nameIndex != -1) cursor.getString(nameIndex) ?: file.name else file.name
+                val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else file.length()
+                val dateModified = if (dateIndex != -1) cursor.getLong(dateIndex) else file.lastModified()
+
+                results.add(DevicePdfFile(name = name, path = path, size = size, dateModified = dateModified))
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    results.distinctBy { it.path }
+}
+
+fun hasStoragePermission(context: Context): Boolean {
+    return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        android.os.Environment.isExternalStorageManager()
+    } else {
+        androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+}
+
+fun requestAllFilesPermission(context: Context, launcher: androidx.activity.result.ActivityResultLauncher<Intent>) {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            launcher.launch(intent)
+        } catch (e: Exception) {
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+            launcher.launch(intent)
+        }
+    }
+}
+
+@Composable
+fun WelcomeOnboardingScreen(
+    onRequestPermission: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(28.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.FileOpen,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(72.dp)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "مرحباً بك في قارئ ومستعرض PDF",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "لعرض كل ملفات PDF الموجودة على جهازك تلقائياً، يحتاج التطبيق إذن الوصول إلى وحدة التخزين.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+            Spacer(modifier = Modifier.height(28.dp))
+            Button(
+                onClick = onRequestPermission,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .testTag("grant_permission_button")
+            ) {
+                Text(
+                    text = "منح الإذن للمتابعة",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MainNavigationScreen(
+    viewModel: PdfViewModel,
+    modifier: Modifier = Modifier
+) {
+    var selectedTab by remember { mutableStateOf(0) }
+
+    val context = LocalContext.current
+    var deviceFiles by remember { mutableStateOf<List<DevicePdfFile>>(emptyList()) }
+    var isScanningDevice by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        isScanningDevice = true
+        deviceFiles = scanPdfFilesOnDevice(context)
+        isScanningDevice = false
+    }
+
+    Scaffold(
+        modifier = modifier,
+        bottomBar = {
+            NavigationBar(
+                containerColor = SurfaceDark,
+                tonalElevation = 8.dp
+            ) {
+                val tabs = listOf(
+                    Triple("الرئيسية", Icons.Default.Home, 0),
+                    Triple("المجلدات", Icons.Default.Folder, 1),
+                    Triple("الأدوات", Icons.Default.Build, 2),
+                    Triple("الإعدادات", Icons.Default.Settings, 3)
+                )
+
+                tabs.forEach { (label, icon, index) ->
+                    val isSelected = selectedTab == index
+                    val scale by animateFloatAsState(
+                        targetValue = if (isSelected) 1.15f else 1.0f,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "icon_scale"
+                    )
+
+                    NavigationBarItem(
+                        selected = isSelected,
+                        onClick = { selectedTab = index },
+                        label = {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) LavenderPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                modifier = Modifier.scale(scale),
+                                tint = if (isSelected) LavenderPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = LavenderPrimary,
+                            selectedTextColor = LavenderPrimary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+                        )
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        Crossfade(
+            targetState = selectedTab,
+            animationSpec = tween(durationMillis = 220),
+            label = "tab_transition",
+            modifier = Modifier.padding(innerPadding)
+        ) { tab ->
+            when (tab) {
+                0 -> HomeScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize()
+                )
+                1 -> FoldersScreenPlaceholder(deviceFileCount = deviceFiles.size, isScanning = isScanningDevice, modifier = Modifier.fillMaxSize())
+                2 -> ToolsScreenPlaceholder(deviceFileCount = deviceFiles.size, isScanning = isScanningDevice, modifier = Modifier.fillMaxSize())
+                3 -> SettingsScreen(modifier = Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+fun FoldersScreenPlaceholder(deviceFileCount: Int, isScanning: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = "المجلدات",
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (isScanning) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "جاري فحص ملفات الجهاز...",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+            } else {
+                Text(
+                    text = "تم العثور على $deviceFileCount ملف PDF على جهازك",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "شاشة عرض المجلدات قريباً",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ToolsScreenPlaceholder(deviceFileCount: Int, isScanning: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Build,
+                contentDescription = "الأدوات",
+                tint = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f),
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (isScanning) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.tertiary)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "جاري فحص ملفات الجهاز...",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+            } else {
+                Text(
+                    text = "$deviceFileCount ملف متاح للتعديل",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "شاشة الأدوات قريباً",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsScreen(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(BgDark),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = LavenderPrimary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "الإعدادات",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "قريباً: تخصيص المظهر، إدارة الكاش وخيارات القارئ الافتراضية.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeDashboard(
+fun HomeScreen(
     viewModel: PdfViewModel,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val recentPdfs by viewModel.recentPdfs.collectAsStateWithLifecycle()
     var urlInput by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    val filteredPdfs = remember(recentPdfs, searchQuery) {
+        if (searchQuery.isBlank()) {
+            recentPdfs
+        } else {
+            recentPdfs.filter { it.title.contains(searchQuery, ignoreCase = true) }
+        }
+    }
 
     // Set up file picker launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -310,6 +718,8 @@ fun HomeDashboard(
             viewModel.importLocalPdf(context, it)
         }
     }
+
+    var subTabSelected by remember { mutableStateOf(0) }
 
     Scaffold(
         modifier = modifier,
@@ -328,15 +738,89 @@ fun HomeDashboard(
             )
         }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .padding(innerPadding),
-            contentPadding = WindowInsets.statusBars.asPaddingValues()
+                .padding(innerPadding)
         ) {
-            // Elegant Header/Onboarding Banner Card
-            item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // Greeting and Smart Library Search Header Section
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    val greeting = remember {
+                        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                        when {
+                            hour < 12 -> "صباح الخير ☀️"
+                            hour < 18 -> "مساء النور 🌤️"
+                            else -> "مساء الخير 🌙"
+                        }
+                    }
+                    Text(
+                        text = greeting,
+                        color = LavenderLight,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "المكتبة الذكية",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("البحث في ملفاتك...") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "بحث",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "مسح",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("search_bar_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedBorderColor = LavenderPrimary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                // Elegant Header/Onboarding Banner Card
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -377,10 +861,8 @@ fun HomeDashboard(
                         )
                     }
                 }
-            }
 
-            // Quick Import Card
-            item {
+                // Quick Import Card
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -428,10 +910,8 @@ fun HomeDashboard(
                         }
                     }
                 }
-            }
 
-            // Open from URL Input Card
-            item {
+                // Open from URL Input Card
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -558,51 +1038,73 @@ fun HomeDashboard(
                 }
             }
 
-            // Recent Documents Section Header
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "السجل",
-                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "المستندات الأخيرة",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onBackground
+            // TabRow for subTabs (الأخيرة, كل الملفات, المفضلة)
+            val subTabs = listOf("الأخيرة", "كل الملفات", "المفضلة")
+            TabRow(
+                selectedTabIndex = subTabSelected,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                indicator = { tabPositions ->
+                    if (subTabSelected < tabPositions.size) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[subTabSelected]),
+                            color = AccentYellow
                         )
                     }
-                    if (recentPdfs.isNotEmpty()) {
-                        Text(
-                            text = "مسح الكل",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .testTag("clear_history_button")
-                                .clickable { viewModel.clearAllHistory(context) }
-                        )
-                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                subTabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = subTabSelected == index,
+                        onClick = { subTabSelected = index },
+                        text = {
+                            Text(
+                                text = title,
+                                fontWeight = if (subTabSelected == index) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 14.sp
+                            )
+                        },
+                        selectedContentColor = AccentYellow,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 }
             }
 
-            // History Empty State or items
-            if (recentPdfs.isEmpty()) {
-                item {
+            // AnimatedContent wrapping the document list (LazyColumn or LazyVerticalGrid)
+            AnimatedContent(
+                targetState = subTabSelected,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        slideInHorizontally { it } + fadeIn() togetherWith 
+                            slideOutHorizontally { -it } + fadeOut()
+                    } else {
+                        slideInHorizontally { -it } + fadeIn() togetherWith 
+                            slideOutHorizontally { it } + fadeOut()
+                    }
+                },
+                label = "subtab_transition",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) { tab ->
+                val displayFiles = remember(filteredPdfs, tab) {
+                    if (tab == 2) {
+                        filteredPdfs.filter { file ->
+                            val prefs = context.getSharedPreferences("pdf_reader_prefs", Context.MODE_PRIVATE)
+                            prefs.getBoolean("favorite_${file.title}", false) || prefs.getFloat("progress_${file.name}", 0f) > 0f
+                        }
+                    } else {
+                        filteredPdfs
+                    }
+                }
+
+                if (displayFiles.isEmpty()) {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(40.dp),
+                            .fillMaxSize()
+                            .padding(40.dp)
+                            .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -614,28 +1116,105 @@ fun HomeDashboard(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "السجل فارغ حالياً",
+                            text = if (searchQuery.isEmpty()) {
+                                if (tab == 2) "لا توجد ملفات مفضلة" else "السجل فارغ حالياً"
+                            } else {
+                                "لا توجد نتائج بحث مطابقة"
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "ابدأ بفتح ملف PDF من جهازك أو من رابط لعرضه والاحتفاظ به هنا للوصول السريع.",
+                            text = if (searchQuery.isEmpty()) {
+                                if (tab == 2) {
+                                    "افتح ملفات PDF من الصفحة الرئيسية لقراءتها، وستظهر هنا تلقائياً للوصول السريع."
+                                } else {
+                                    "ابدأ بفتح ملف PDF من جهازك أو من رابط لعرضه والاحتفاظ به هنا للوصول السريع."
+                                }
+                            } else {
+                                "تأكد من كتابة اسم الملف بشكل صحيح أو جرب كلمات بحث أخرى."
+                            },
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                             textAlign = TextAlign.Center,
                             lineHeight = 18.sp
                         )
                     }
-                }
-            } else {
-                items(recentPdfs) { pdf ->
-                    RecentPdfItem(
-                        pdf = pdf,
-                        onOpen = { viewModel.viewRecentPdf(context, pdf) },
-                        onDelete = { viewModel.deletePdfHistory(pdf.id, pdf.cachedFilePath) }
-                    )
+                } else {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Header showing tab count & clear option if applicable
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (tab == 2) Icons.Default.Book else Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = when (tab) {
+                                        0 -> "المستندات الأخيرة"
+                                        1 -> "جميع الملفات المتاحة"
+                                        else -> "المستندات المفضلة والنشطة"
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                            if (tab != 2 && searchQuery.isEmpty()) {
+                                Text(
+                                    text = "مسح الكل",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .testTag("clear_history_button")
+                                        .clickable { viewModel.clearAllHistory(context) }
+                                )
+                            }
+                        }
+
+                        if (tab == 1) {
+                            // Grid view for Tab 1 "كل الملفات"
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = WindowInsets.statusBars.asPaddingValues()
+                            ) {
+                                items(displayFiles) { pdf ->
+                                    PdfFileGridItem(
+                                        file = pdf,
+                                        onOpen = { viewModel.viewRecentPdf(context, pdf) },
+                                        onDelete = { viewModel.deletePdfHistory(pdf.id, pdf.cachedFilePath) }
+                                    )
+                                }
+                            }
+                        } else {
+                            // List view for Tab 0 (الأخيرة) and Tab 2 (المفضلة)
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = WindowInsets.statusBars.asPaddingValues()
+                            ) {
+                                items(displayFiles) { pdf ->
+                                    PdfFileRow(
+                                        file = pdf,
+                                        onOpen = { viewModel.viewRecentPdf(context, pdf) },
+                                        onDelete = { viewModel.deletePdfHistory(pdf.id, pdf.cachedFilePath) }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -675,21 +1254,28 @@ fun SamplePdfRow(
     }
 }
 
+val RecentPdf.name: String get() = title
+
 @Composable
-fun RecentPdfItem(
-    pdf: RecentPdf,
+fun PdfFileRow(
+    file: RecentPdf,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val formatter = remember { SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()) }
-    val dateStr = remember(pdf.timestamp) { formatter.format(Date(pdf.timestamp)) }
-    val sizeStr = remember(pdf.fileSize) {
-        if (pdf.fileSize > 1024 * 1024) {
-            String.format(Locale.getDefault(), "%.2f MB", pdf.fileSize / (1024f * 1024f))
+    val dateStr = remember(file.timestamp) { formatter.format(Date(file.timestamp)) }
+    val sizeStr = remember(file.fileSize) {
+        if (file.fileSize > 1024 * 1024) {
+            String.format(Locale.getDefault(), "%.2f MB", file.fileSize / (1024f * 1024f))
         } else {
-            String.format(Locale.getDefault(), "%.0f KB", pdf.fileSize / 1024f)
+            String.format(Locale.getDefault(), "%.0f KB", file.fileSize / 1024f)
         }
+    }
+    val progress = remember(file.name) {
+        val prefs = context.getSharedPreferences("pdf_reader_prefs", Context.MODE_PRIVATE)
+        prefs.getFloat("progress_${file.name}", 0f)
     }
 
     Card(
@@ -717,12 +1303,21 @@ fun RecentPdfItem(
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = pdf.title,
+                    text = file.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = AccentYellow,
+                    trackColor = SurfaceDark
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
@@ -748,6 +1343,99 @@ fun RecentPdfItem(
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                     modifier = Modifier.size(20.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun PdfFileGridItem(
+    file: RecentPdf,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val formatter = remember { SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()) }
+    val dateStr = remember(file.timestamp) { formatter.format(Date(file.timestamp)) }
+    val sizeStr = remember(file.fileSize) {
+        if (file.fileSize > 1024 * 1024) {
+            String.format(Locale.getDefault(), "%.2f MB", file.fileSize / (1024f * 1024f))
+        } else {
+            String.format(Locale.getDefault(), "%.0f KB", file.fileSize / 1024f)
+        }
+    }
+    val progress = remember(file.name) {
+        val prefs = context.getSharedPreferences("pdf_reader_prefs", Context.MODE_PRIVATE)
+        prefs.getFloat("progress_${file.name}", 0f)
+    }
+
+    Card(
+        modifier = modifier
+            .padding(8.dp)
+            .clickable(onClick = onOpen),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PictureAsPdf,
+                    contentDescription = "مستند",
+                    tint = Color(0xFFE53935),
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = file.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = AccentYellow,
+                trackColor = SurfaceDark
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = sizeStr,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "حذف",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }
