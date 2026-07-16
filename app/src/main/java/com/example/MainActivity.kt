@@ -1245,7 +1245,9 @@ class AndroidBridge(
     private val onPageChanged: (page: Int, total: Int) -> Unit,
     private val onSearchMatchesCount: (current: Int, total: Int) -> Unit,
     private val onSearchStateChanged: (state: Int, previous: Boolean) -> Unit,
-    private val onLinkClicked: (url: String, text: String) -> Unit = { _, _ -> }
+    private val onLinkClicked: (url: String, text: String) -> Unit = { _, _ -> },
+    private val onUserScrolled: () -> Unit = {},
+    private val onScrollProgress: (fraction: Float) -> Unit = {}
 ) {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -1278,6 +1280,20 @@ class AndroidBridge(
         android.util.Log.d("PDF_BRIDGE", "onLinkClicked called: url=$url, text=$text")
         handler.post {
             onLinkClicked(url, text)
+        }
+    }
+
+    @JavascriptInterface
+    fun onUserScrolled() {
+        handler.post {
+            onUserScrolled()
+        }
+    }
+
+    @JavascriptInterface
+    fun onScrollProgress(fraction: Float) {
+        handler.post {
+            onScrollProgress(fraction)
         }
     }
 }
@@ -2258,8 +2274,10 @@ fun PdfReaderScreen(
 
     var isScrollerVisible by remember { mutableStateOf(false) }
     var isDraggingScroller by remember { mutableStateOf(false) }
+    var scrollTrigger by remember { mutableStateOf(0) }
+    var scrollProgress by remember { mutableStateOf(0f) }
 
-    LaunchedEffect(currentPage, isDraggingScroller) {
+    LaunchedEffect(currentPage, isDraggingScroller, scrollTrigger) {
         if (isDraggingScroller) {
             isScrollerVisible = true
         } else {
@@ -2401,7 +2419,7 @@ fun PdfReaderScreen(
                     }
                 },
                 onLinkClicked = { url, text ->
-                    val isAudio = isAudioUrl(url)
+                    val isAudio = isAudioUrl(url) || isAudioUrl(text)
                     if (isAudio) {
                         audioPlayUrl = url
                         audioWord = text.ifEmpty { "نطق" }
@@ -2409,6 +2427,12 @@ fun PdfReaderScreen(
                     } else {
                         inAppBrowserUrl = url
                     }
+                },
+                onUserScrolled = {
+                    scrollTrigger++
+                },
+                onScrollProgress = { progress ->
+                    scrollProgress = progress
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -2487,7 +2511,8 @@ fun PdfReaderScreen(
                     },
                     readingTheme = readingTheme,
                     isDragging = isDraggingScroller,
-                    onDraggingChanged = { isDraggingScroller = it }
+                    onDraggingChanged = { isDraggingScroller = it },
+                    scrollProgress = scrollProgress
                 )
             }
 
@@ -2708,9 +2733,10 @@ fun AutoSizeText(
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified,
     fontWeight: FontWeight? = null,
-    maxLines: Int = 1
+    maxLines: Int = 1,
+    initialFontSizeSp: Float = 16f
 ) {
-    var fontSize by remember(text) { mutableStateOf(16.sp) }
+    var fontSizeValue by remember(text) { mutableStateOf(initialFontSizeSp) }
     var readyToDraw by remember(text) { mutableStateOf(false) }
 
     Text(
@@ -2720,13 +2746,13 @@ fun AutoSizeText(
         },
         color = color,
         fontWeight = fontWeight,
-        fontSize = fontSize,
+        fontSize = fontSizeValue.sp,
         maxLines = maxLines,
         overflow = TextOverflow.Clip,
         onTextLayout = { textLayoutResult ->
             if (textLayoutResult.hasVisualOverflow) {
-                if (fontSize.value > 10f) {
-                    fontSize = (fontSize.value - 1f).sp
+                if (fontSizeValue > 8f) {
+                    fontSizeValue -= 1f
                 } else {
                     readyToDraw = true
                 }
@@ -2741,7 +2767,9 @@ fun isAudioUrl(url: String): Boolean {
     val lower = url.lowercase()
     return lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".ogg") || lower.endsWith(".aac") ||
            lower.contains("/audio/") || lower.contains("/sound/") || lower.contains("/sounds/") || lower.contains("pronounce") || lower.contains("pronunciation") ||
-           lower.contains("translate_tts") || lower.contains("speech") || lower.contains("voice") || lower.contains(".mp3?") || lower.contains(".wav?")
+           lower.contains("translate_tts") || lower.contains("speech") || lower.contains("voice") || lower.contains(".mp3?") || lower.contains(".wav?") ||
+           lower.contains("speak") || lower.contains("audio") || lower.contains("tts") || lower.contains("sound") || lower.contains("pronun") ||
+           lower.contains("anbricht") || lower.contains("download")
 }
 
 @Composable
@@ -2753,68 +2781,69 @@ fun MiniAudioPlayer(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(24.dp), // Dynamic Island rounded corners
-        color = Color(0xFF1E1F22), // Elegant dark black color
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(20.dp), // Dynamic Island rounded corners
+        color = Color(0xFF1E1F22), // Deep black-grey theme color
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
         shadowElevation = 8.dp,
         tonalElevation = 8.dp,
         modifier = modifier
-            .widthIn(min = 160.dp, max = 260.dp)
-            .height(40.dp) // Sleek compact height
+            .widthIn(min = 180.dp, max = 300.dp)
+            .height(38.dp) // Sleek compact height
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             // Replay Button (mini size)
             IconButton(
                 onClick = onReplay,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(24.dp)
             ) {
                 if (audioState == AudioPlayState.BUFFERING) {
                     CircularProgressIndicator(
                         color = Color(0xFF9C27B0), // Purple/Lavender accent
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(12.dp)
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "إعادة النطق",
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
 
-            // Word text (AutoSizeText with custom styling, centered)
+            // Word text (AutoSizeText with custom initial font size 13.sp, centered)
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 6.dp),
+                    .padding(horizontal = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 AutoSizeText(
                     text = word,
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
+                    maxLines = 1,
+                    initialFontSizeSp = 13f
                 )
             }
 
             // Close Button 'x' (mini size)
             IconButton(
                 onClick = onClose,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(24.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "إغلاق",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp)
+                    tint = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
@@ -3123,6 +3152,7 @@ fun PdfVerticalScroller(
     readingTheme: String,
     isDragging: Boolean,
     onDraggingChanged: (Boolean) -> Unit,
+    scrollProgress: Float,
     modifier: Modifier = Modifier
 ) {
     if (totalPages <= 1) return
@@ -3131,7 +3161,7 @@ fun PdfVerticalScroller(
     var dragFraction by remember { mutableStateOf(0f) }
 
     // Use a spring animation to smoothly transition the handle position when NOT dragging
-    val targetFraction = ((currentPage - 1).toFloat() / (totalPages - 1).toFloat()).coerceIn(0f, 1f)
+    val targetFraction = scrollProgress.coerceIn(0f, 1f)
     val animatedFraction by animateFloatAsState(
         targetValue = targetFraction,
         animationSpec = spring(stiffness = Spring.StiffnessLow),
@@ -3299,6 +3329,8 @@ fun PdfWebView(
     onSearchMatchesCount: (current: Int, total: Int) -> Unit,
     onSearchStateChanged: (state: Int, previous: Boolean) -> Unit,
     onLinkClicked: (url: String, text: String) -> Unit,
+    onUserScrolled: () -> Unit,
+    onScrollProgress: (fraction: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -3349,7 +3381,9 @@ fun PdfWebView(
                         onPageChanged = onPageChanged,
                         onSearchMatchesCount = onSearchMatchesCount,
                         onSearchStateChanged = onSearchStateChanged,
-                        onLinkClicked = onLinkClicked
+                        onLinkClicked = onLinkClicked,
+                        onUserScrolled = onUserScrolled,
+                        onScrollProgress = onScrollProgress
                     ),
                     "AndroidBridge"
                 )
@@ -3367,6 +3401,18 @@ fun PdfWebView(
                         request: WebResourceRequest
                     ): WebResourceResponse? {
                         return assetLoader.shouldInterceptRequest(request.url)
+                    }
+
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val requestUrl = request?.url?.toString() ?: return false
+                        if (requestUrl.contains("appassets.androidplatform.net") || requestUrl.startsWith("file://")) {
+                            return false
+                        }
+                        onLinkClicked(requestUrl, "")
+                        return true
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -3667,6 +3713,21 @@ private fun injectPdfBridge(webView: WebView?) {
                     if (container) {
                         container.addEventListener('scroll', () => {
                             try {
+                                if (window.AndroidBridge && typeof window.AndroidBridge.onUserScrolled === 'function') {
+                                    window.AndroidBridge.onUserScrolled();
+                                }
+                                
+                                let scrollTop = container.scrollTop;
+                                let scrollHeight = container.scrollHeight;
+                                let clientHeight = container.clientHeight;
+                                let maxScroll = scrollHeight - clientHeight;
+                                if (maxScroll > 0) {
+                                    let progress = scrollTop / maxScroll;
+                                    if (window.AndroidBridge && typeof window.AndroidBridge.onScrollProgress === 'function') {
+                                        window.AndroidBridge.onScrollProgress(progress);
+                                    }
+                                }
+
                                 if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
                                     let page = window.PDFViewerApplication.pdfViewer.currentPageNumber;
                                     let total = window.PDFViewerApplication.pdfViewer.pagesCount || (window.PDFViewerApplication.pdfDocument && window.PDFViewerApplication.pdfDocument.numPages) || 1;
@@ -3688,18 +3749,14 @@ private fun injectPdfBridge(webView: WebView?) {
 
             function setupLinkInterceptor() {
                 try {
-                    let container = document.getElementById('viewer');
-                    if (!container) {
-                        container = document.body;
-                    }
-                    if (container) {
-                        container.addEventListener('click', (e) => {
-                            let target = e.target;
-                            while (target && target.tagName !== 'A') {
-                                target = target.parentElement;
-                            }
-                            if (target && target.href) {
-                                let url = target.href;
+                    document.addEventListener('click', (e) => {
+                        let target = e.target;
+                        while (target && target.tagName !== 'A') {
+                            target = target.parentElement;
+                        }
+                        if (target && target.href) {
+                            let url = target.href;
+                            if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('appassets.androidplatform.net/pdfjs/web/viewer.html#')) {
                                 let text = target.innerText || target.textContent || "";
                                 text = text.trim();
                                 if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
@@ -3708,12 +3765,27 @@ private fun injectPdfBridge(webView: WebView?) {
                                     window.AndroidBridge.onLinkClicked(url, text);
                                 }
                             }
-                        }, true); // useCapture to catch it early
-                    } else {
-                        setTimeout(setupLinkInterceptor, 200);
-                    }
+                        }
+                    }, true); // useCapture to catch it early
                 } catch (e) {
                     console.error("Link interceptor setup error: " + e.message);
+                }
+            }
+
+            function setupLinkServiceOverride() {
+                try {
+                    if (window.PDFViewerApplication && window.PDFViewerApplication.linkService) {
+                        window.PDFViewerApplication.linkService.openExternalLink = function(url) {
+                            console.log("PDFJS intercepted openExternalLink: " + url);
+                            if (window.AndroidBridge && typeof window.AndroidBridge.onLinkClicked === 'function') {
+                                window.AndroidBridge.onLinkClicked(url, "");
+                            }
+                        };
+                    } else {
+                        setTimeout(setupLinkServiceOverride, 200);
+                    }
+                } catch (e) {
+                    console.error("LinkService override error: " + e.message);
                 }
             }
 
@@ -3721,6 +3793,7 @@ private fun injectPdfBridge(webView: WebView?) {
             registerEvents();
             setupScrollListener();
             setupLinkInterceptor();
+            setupLinkServiceOverride();
         })();
     """.trimIndent()
 
