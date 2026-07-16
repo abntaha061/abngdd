@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -1229,6 +1231,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun onPageChanged(page: Int, total: Int) {
+        android.util.Log.d("PDF_BRIDGE", "onPageChanged called: page=$page, total=$total")
         handler.post {
             onPageChanged(page, total)
         }
@@ -1236,6 +1239,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun onSearchMatchesCount(current: Int, total: Int) {
+        android.util.Log.d("PDF_BRIDGE", "onSearchMatchesCount called: current=$current, total=$total")
         handler.post {
             onSearchMatchesCount(current, total)
         }
@@ -1243,6 +1247,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun onSearchStateChanged(state: Int, previous: Boolean) {
+        android.util.Log.d("PDF_BRIDGE", "onSearchStateChanged called: state=$state, previous=$previous")
         handler.post {
             onSearchStateChanged(state, previous)
         }
@@ -2158,7 +2163,7 @@ fun PdfReaderScreen(
 ) {
     val context = LocalContext.current
     var currentPage by remember { mutableStateOf(1) }
-    var totalPages by remember { mutableStateOf(1) }
+    var totalPages by remember(pdf) { mutableStateOf(getPdfPageCount(pdf.cachedFilePath)) }
     val webViewState = remember { PdfWebViewState() }
 
     var isSearchActive by remember { mutableStateOf(false) }
@@ -2510,7 +2515,9 @@ fun PdfReaderScreen(
                 readingTheme = readingTheme,
                 onPageChanged = { page, total ->
                     currentPage = page
-                    totalPages = total
+                    if (total > 1) {
+                        totalPages = total
+                    }
                 },
                 onSearchMatchesCount = { current, total ->
                     searchCurrentMatch = current
@@ -3056,6 +3063,12 @@ private fun injectPdfBridge(webView: WebView?) {
                                 reportPage(page, total || 1);
                             });
 
+                            bus.on('pagesloaded', (e) => {
+                                let page = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                                let total = e.pagesCount || (window.PDFViewerApplication.pdfDocument && window.PDFViewerApplication.pdfDocument.numPages) || 1;
+                                reportPage(page, total);
+                            });
+
                             bus.on('updatefindmatchescount', (e) => {
                                 try {
                                     const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
@@ -3110,5 +3123,27 @@ fun sharePdf(context: Context, file: File) {
         context.startActivity(Intent.createChooser(intent, "مشاركة مستند PDF"))
     } catch (e: Exception) {
         Toast.makeText(context, "فشل مشاركة الملف: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun getPdfPageCount(filePath: String): Int {
+    var pfd: ParcelFileDescriptor? = null
+    var renderer: PdfRenderer? = null
+    return try {
+        val file = java.io.File(filePath)
+        if (!file.exists()) return 1
+        pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        renderer = PdfRenderer(pfd)
+        renderer.pageCount
+    } catch (e: Exception) {
+        android.util.Log.e("PdfPageCount", "Error reading PDF page count: ${e.message}", e)
+        1
+    } finally {
+        try {
+            renderer?.close()
+        } catch (e: Exception) {}
+        try {
+            pfd?.close()
+        } catch (e: Exception) {}
     }
 }

@@ -888,6 +888,12 @@ See https://github.com/adobe-type-tools/cmap-resources
                                   reportPage(page, total || 1);
                               });
 
+                              bus.on('pagesloaded', (e) => {
+                                  let page = (window.PDFViewerApplication.pdfViewer && window.PDFViewerApplication.pdfViewer.currentPageNumber) || 1;
+                                  let total = e.pagesCount || (window.PDFViewerApplication.pdfDocument && window.PDFViewerApplication.pdfDocument.numPages) || 1;
+                                  reportPage(page, total);
+                              });
+
                               bus.on('updatefindmatchescount', (e) => {
                                   try {
                                       const current = (e.matchesCount && typeof e.matchesCount.current === 'number') ? e.matchesCount.current : 0;
