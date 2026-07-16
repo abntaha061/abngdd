@@ -126,6 +126,21 @@ import com.example.data.PdfRepository
 import com.example.data.RecentPdf
 import com.example.ui.theme.MyApplicationTheme
 import java.io.File
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.draw.drawWithContent
+import kotlin.math.roundToInt
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 
 // Imports for custom bottom sheets and widgets
 import androidx.compose.material3.ModalBottomSheet
@@ -2269,238 +2284,6 @@ fun PdfReaderScreen(
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            if (isSearchActive) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding(),
-                    color = MaterialTheme.colorScheme.primary,
-                    tonalElevation = 8.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                            .padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Close search button
-                        IconButton(
-                            onClick = {
-                                isSearchActive = false
-                                searchQuery = ""
-                                searchCurrentMatch = 0
-                                searchTotalMatches = 0
-                                webViewState.clearSearch(isMatchCase)
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "إغلاق البحث",
-                                tint = Color.White
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        // Search input text field using BasicTextField for perfect vertical alignment and custom styling
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { q ->
-                                searchQuery = q
-                                if (q.isEmpty()) {
-                                    searchCurrentMatch = 0
-                                    searchTotalMatches = 0
-                                    webViewState.clearSearch(isMatchCase)
-                                } else {
-                                    webViewState.performSearch(q, isMatchCase)
-                                }
-                            },
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = Color.White,
-                                fontSize = 15.sp
-                            ),
-                            cursorBrush = SolidColor(Color.White),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(40.dp)
-                                .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 12.dp),
-                            decorationBox = { innerTextField ->
-                                Row(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier.weight(1f),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        if (searchQuery.isEmpty()) {
-                                            Text(
-                                                text = "البحث عن كلمة...",
-                                                color = Color.White.copy(alpha = 0.6f),
-                                                fontSize = 15.sp
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(
-                                            onClick = {
-                                                searchQuery = ""
-                                                searchCurrentMatch = 0
-                                                searchTotalMatches = 0
-                                                webViewState.clearSearch(isMatchCase)
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "مسح",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        // Matches count status
-                        if (searchQuery.isNotEmpty()) {
-                            Text(
-                                text = if (searchTotalMatches > 0) {
-                                    "$searchCurrentMatch / $searchTotalMatches"
-                                } else {
-                                    "0/0"
-                                },
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
-                        }
-
-                        // Case sensitive button "Aa"
-                        IconButton(
-                            onClick = {
-                                val nextMatchCase = !isMatchCase
-                                isMatchCase = nextMatchCase
-                                if (searchQuery.isNotEmpty()) {
-                                    webViewState.performSearch(searchQuery, nextMatchCase)
-                                }
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Text(
-                                text = "Aa",
-                                color = if (isMatchCase) Color.White else Color.White.copy(alpha = 0.5f),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                        }
-
-                        // Previous Match button
-                        IconButton(
-                            onClick = {
-                                if (searchQuery.isNotEmpty()) {
-                                    webViewState.searchPrevious(searchQuery, isMatchCase)
-                                }
-                            },
-                            enabled = searchQuery.isNotEmpty(),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "السابق",
-                                tint = if (searchQuery.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.5f)
-                            )
-                        }
-
-                        // Next Match button
-                        IconButton(
-                            onClick = {
-                                if (searchQuery.isNotEmpty()) {
-                                    webViewState.searchNext(searchQuery, isMatchCase)
-                                }
-                            },
-                            enabled = searchQuery.isNotEmpty(),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "التالي",
-                                tint = if (searchQuery.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-                }
-            } else {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = pdf.title,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color.White
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.testTag("back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "رجوع",
-                                tint = Color.White
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                isSearchActive = true
-                            },
-                            modifier = Modifier.testTag("top_search_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "بحث",
-                                tint = Color.White
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                val file = File(pdf.cachedFilePath)
-                                if (file.exists()) {
-                                    sharePdf(context, file)
-                                } else {
-                                    Toast.makeText(context, "الملف غير موجود في الذاكرة المؤقتة لمشاركته", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.testTag("share_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "مشاركة",
-                                tint = Color.White
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-            }
-        },
         bottomBar = {}
     ) { innerPadding ->
         Box(
@@ -2532,40 +2315,77 @@ fun PdfReaderScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // 1. Floating Page Number Indicator (Top Center Pill)
-            Surface(
+            // 1. Floating Capsule Top Bar
+            val capsuleColors = getCapsuleColors(readingTheme)
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically(),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 16.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.1f))
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .clickable { activeBottomSheet = ReaderBottomSheetType.JUMP_PAGE }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Book,
-                        contentDescription = "الانتقال لصفحة",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(16.dp)
+                if (isSearchActive) {
+                    SearchCapsuleBar(
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { q ->
+                            searchQuery = q
+                            if (q.isEmpty()) {
+                                searchCurrentMatch = 0
+                                searchTotalMatches = 0
+                                webViewState.clearSearch(isMatchCase)
+                            } else {
+                                webViewState.performSearch(q, isMatchCase)
+                            }
+                        },
+                        searchCurrentMatch = searchCurrentMatch,
+                        searchTotalMatches = searchTotalMatches,
+                        isMatchCase = isMatchCase,
+                        onMatchCaseChange = { isMatchCase = it },
+                        onPrevMatch = { webViewState.searchPrevious(searchQuery, isMatchCase) },
+                        onNextMatch = { webViewState.searchNext(searchQuery, isMatchCase) },
+                        onCloseSearch = {
+                            isSearchActive = false
+                            searchQuery = ""
+                            searchCurrentMatch = 0
+                            searchTotalMatches = 0
+                            webViewState.clearSearch(isMatchCase)
+                        },
+                        colors = capsuleColors
                     )
-                    Text(
-                        text = "الصفحة $currentPage / $totalPages",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    NormalCapsuleBar(
+                        pdfTitle = pdf.title,
+                        onBack = onBack,
+                        onSearchClick = { isSearchActive = true },
+                        onShareClick = {
+                            val file = File(pdf.cachedFilePath)
+                            if (file.exists()) {
+                                sharePdf(context, file)
+                            } else {
+                                Toast.makeText(context, "الملف غير موجود في الذاكرة المؤقتة لمشاركته", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = capsuleColors
                     )
                 }
             }
 
-            // 2. Floating Capsule Bottom Bar (Bottom Center)
+            // 2. Custom Vertical Fast Scroller with Teardrop
+            PdfVerticalScroller(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { page ->
+                    currentPage = page
+                    webViewState.jumpToPage(page)
+                },
+                readingTheme = readingTheme,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+            )
+
+            // 3. Floating Capsule Bottom Bar (Bottom Center)
             PdfBottomBar(
                 onToggleSidebar = { webViewState.toggleSidebar() },
                 onZoomClick = { activeBottomSheet = ReaderBottomSheetType.ZOOM_DISPLAY },
@@ -2700,6 +2520,442 @@ fun PdfReaderScreen(
                     )
                 }
                 else -> {}
+            }
+        }
+    }
+}
+
+// --- CUSTOM MODERN COMPONENTS FOR ADVANCED CAPSULE TOP BAR AND TEARDROP SCROLLER ---
+
+data class CapsuleColors(
+    val backgroundColor: Color,
+    val contentColor: Color,
+    val borderColor: Color
+)
+
+@Composable
+fun getCapsuleColors(readingTheme: String): CapsuleColors {
+    return when (readingTheme) {
+        "dark" -> CapsuleColors(
+            backgroundColor = Color(0xFF2B2D31).copy(alpha = 0.95f),
+            contentColor = Color(0xFFF4F6F6),
+            borderColor = Color.White.copy(alpha = 0.08f)
+        )
+        "black" -> CapsuleColors(
+            backgroundColor = Color(0xFF1E1F22).copy(alpha = 0.95f),
+            contentColor = Color(0xFFE3E3E3),
+            borderColor = Color.White.copy(alpha = 0.05f)
+        )
+        "sepia" -> CapsuleColors(
+            backgroundColor = Color(0xFFF4ECD8).copy(alpha = 0.95f),
+            contentColor = Color(0xFF4E3629),
+            borderColor = Color(0xFF4E3629).copy(alpha = 0.1f)
+        )
+        else -> CapsuleColors(
+            backgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+        )
+    }
+}
+
+@Composable
+fun AutoSizeText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+    maxLines: Int = 1
+) {
+    var fontSize by remember(text) { mutableStateOf(16.sp) }
+    var readyToDraw by remember(text) { mutableStateOf(false) }
+
+    Text(
+        text = text,
+        modifier = modifier.drawWithContent {
+            if (readyToDraw) drawContent()
+        },
+        color = color,
+        fontWeight = fontWeight,
+        fontSize = fontSize,
+        maxLines = maxLines,
+        overflow = TextOverflow.Clip,
+        onTextLayout = { textLayoutResult ->
+            if (textLayoutResult.hasVisualOverflow) {
+                if (fontSize.value > 10f) {
+                    fontSize = (fontSize.value - 1f).sp
+                } else {
+                    readyToDraw = true
+                }
+            } else {
+                readyToDraw = true
+            }
+        }
+    )
+}
+
+@Composable
+fun NormalCapsuleBar(
+    pdfTitle: String,
+    onBack: () -> Unit,
+    onSearchClick: () -> Unit,
+    onShareClick: () -> Unit,
+    colors: CapsuleColors,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    Surface(
+        shape = CircleShape,
+        color = colors.backgroundColor,
+        border = BorderStroke(1.dp, colors.borderColor),
+        shadowElevation = 6.dp,
+        tonalElevation = 6.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.testTag("back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "رجوع",
+                    tint = colors.contentColor
+                )
+            }
+
+            AutoSizeText(
+                text = pdfTitle,
+                color = colors.contentColor,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp)
+            )
+
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier.testTag("top_search_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "بحث",
+                    tint = colors.contentColor
+                )
+            }
+
+            IconButton(
+                onClick = onShareClick,
+                modifier = Modifier.testTag("share_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = "مشاركة",
+                    tint = colors.contentColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SearchCapsuleBar(
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    searchCurrentMatch: Int,
+    searchTotalMatches: Int,
+    isMatchCase: Boolean,
+    onMatchCaseChange: (Boolean) -> Unit,
+    onPrevMatch: () -> Unit,
+    onNextMatch: () -> Unit,
+    onCloseSearch: () -> Unit,
+    colors: CapsuleColors,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = CircleShape,
+        color = colors.backgroundColor,
+        border = BorderStroke(1.dp, colors.borderColor),
+        shadowElevation = 6.dp,
+        tonalElevation = 6.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onCloseSearch,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "إغلاق البحث",
+                    tint = colors.contentColor
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = colors.contentColor,
+                    fontSize = 14.sp
+                ),
+                cursorBrush = SolidColor(colors.contentColor),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp)
+                    .background(colors.contentColor.copy(alpha = 0.1f), CircleShape)
+                    .padding(horizontal = 12.dp),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "البحث عن كلمة...",
+                                    color = colors.contentColor.copy(alpha = 0.5f),
+                                    fontSize = 14.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { onSearchQueryChange("") },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "مسح",
+                                    tint = colors.contentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            if (searchQuery.isNotEmpty()) {
+                Text(
+                    text = if (searchTotalMatches > 0) {
+                        "$searchCurrentMatch / $searchTotalMatches"
+                    } else {
+                        "0/0"
+                    },
+                    color = colors.contentColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+
+            IconButton(
+                onClick = { onMatchCaseChange(!isMatchCase) },
+                modifier = Modifier.size(40.dp)
+            ) {
+                Text(
+                    text = "Aa",
+                    color = if (isMatchCase) colors.contentColor else colors.contentColor.copy(alpha = 0.5f),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+
+            IconButton(
+                onClick = onPrevMatch,
+                enabled = searchQuery.isNotEmpty(),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "السابق",
+                    tint = if (searchQuery.isNotEmpty()) colors.contentColor else colors.contentColor.copy(alpha = 0.3f)
+                )
+            }
+
+            IconButton(
+                onClick = onNextMatch,
+                enabled = searchQuery.isNotEmpty(),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "التالي",
+                    tint = if (searchQuery.isNotEmpty()) colors.contentColor else colors.contentColor.copy(alpha = 0.3f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PdfVerticalScroller(
+    currentPage: Int,
+    totalPages: Int,
+    onPageChange: (Int) -> Unit,
+    readingTheme: String,
+    modifier: Modifier = Modifier
+) {
+    if (totalPages <= 1) return
+
+    // Track state of dragging
+    var isDragging by remember { mutableStateOf(false) }
+    // Local drag position y (fraction from 0.0 to 1.0)
+    var dragFraction by remember { mutableStateOf(0f) }
+
+    // Use a spring animation to smoothly transition the handle position when NOT dragging
+    val targetFraction = ((currentPage - 1).toFloat() / (totalPages - 1).toFloat()).coerceIn(0f, 1f)
+    val animatedFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "ScrollFraction"
+    )
+
+    val currentFraction = if (isDragging) dragFraction else animatedFraction
+
+    // Determine colors based on reading theme
+    val capsuleColors = getCapsuleColors(readingTheme)
+    // Custom beautiful purple for the scroll handle to match user's image, or theme color
+    val accentPurple = Color(0xFF9C27B0)
+    val activeTrackColor = accentPurple.copy(alpha = 0.8f)
+    val inactiveTrackColor = capsuleColors.contentColor.copy(alpha = 0.15f)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .width(100.dp)
+            .fillMaxHeight()
+            .padding(vertical = 120.dp) // Avoid overlapping with top capsule and bottom floating bar
+    ) {
+        val totalHeightPx = constraints.maxHeight.toFloat()
+        if (totalHeightPx <= 0f) return@BoxWithConstraints
+
+        // Vertical Track (on the right side)
+        // We place the track at x = 84.dp (which is 16.dp from the right edge)
+        val trackWidth = 4.dp
+
+        // Draw track and progress
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 16.dp)
+                .width(trackWidth)
+                .fillMaxHeight()
+                .background(inactiveTrackColor, RoundedCornerShape(2.dp))
+        ) {
+            // Active part from top to current handle position
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(currentFraction)
+                    .background(activeTrackColor, RoundedCornerShape(2.dp))
+            )
+        }
+
+        // Draggable Teardrop Handle
+        // The teardrop handle has width = 75.dp, height = 48.dp
+        // Its vertical position is proportional to currentFraction
+        val handleHeight = 48.dp
+        val maxOffsetPx = totalHeightPx - with(LocalDensity.current) { handleHeight.toPx() }
+        val handleOffsetPx = currentFraction * maxOffsetPx
+
+        Box(
+            modifier = Modifier
+                .offset(
+                    x = 0.dp, // It sits on the right, pointing left
+                    y = with(LocalDensity.current) { handleOffsetPx.toDp() }
+                )
+                .align(Alignment.TopEnd)
+                .pointerInput(totalPages) {
+                    detectDragGestures(
+                        onDragStart = {
+                            isDragging = true
+                            dragFraction = targetFraction
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val newOffsetPx = (dragFraction * maxOffsetPx + dragAmount.y).coerceIn(0f, maxOffsetPx)
+                            val newFraction = if (maxOffsetPx > 0f) newOffsetPx / maxOffsetPx else 0f
+                            dragFraction = newFraction
+
+                            val exactPage = 1 + (newFraction * (totalPages - 1))
+                            val page = exactPage.roundToInt().coerceIn(1, totalPages)
+                            if (page != currentPage) {
+                                onPageChange(page)
+                            }
+                        }
+                    )
+                }
+                .size(width = 75.dp, height = handleHeight)
+                .drawBehind {
+                    // Draw custom teardrop pointing left (bulb on the right, point on the left)
+                    val r = size.height / 2f
+                    val centerX = size.width - r
+                    val path = Path().apply {
+                        arcTo(
+                            rect = Rect(centerX - r, 0f, centerX + r, size.height),
+                            startAngleDegrees = 90f,
+                            sweepAngleDegrees = -180f,
+                            forceMoveTo = false
+                        )
+                        quadraticTo(
+                            centerX - r * 0.3f, 0f,
+                            0f, r
+                        )
+                        quadraticTo(
+                            centerX - r * 0.3f, size.height,
+                            centerX, size.height
+                        )
+                        close()
+                    }
+                    drawPath(
+                        path = path,
+                        color = accentPurple
+                    )
+                }
+        ) {
+            // Text centered inside the round bulb (the rightmost 48.dp)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "${if (isDragging) (1 + (dragFraction * (totalPages - 1))).roundToInt().coerceIn(1, totalPages) else currentPage}",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
             }
         }
     }
