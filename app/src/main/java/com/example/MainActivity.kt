@@ -2419,10 +2419,10 @@ fun PdfReaderScreen(
                     }
                 },
                 onLinkClicked = { url, text ->
-                    val isAudio = isAudioUrl(url) || isAudioUrl(text)
-                    if (isAudio) {
+                    if (isDirectAudioUrl(url)) {
+                        val extractedWord = extractWordFromAudioUrl(url, text)
                         audioPlayUrl = url
-                        audioWord = text.ifEmpty { "نطق" }
+                        audioWord = extractedWord
                         showMiniPlayer = true
                     } else {
                         inAppBrowserUrl = url
@@ -2537,7 +2537,7 @@ fun PdfReaderScreen(
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 72.dp)
-                    .zIndex(5f)
+                    .zIndex(15f)
             ) {
                 MiniAudioPlayer(
                     word = audioWord,
@@ -2763,14 +2763,58 @@ fun AutoSizeText(
     )
 }
 
-fun isAudioUrl(url: String): Boolean {
+fun isDirectAudioUrl(url: String): Boolean {
     val lower = url.lowercase()
+    
+    // If it's a web page of a known dictionary, it's not a direct audio file unless it points to an audio resource
+    if (lower.contains("arabdict.com") && !lower.endsWith(".mp3") && !lower.contains(".mp3?")) {
+        return false
+    }
+    if (lower.contains("dict.cc") && !lower.endsWith(".mp3") && !lower.contains(".mp3?")) {
+        return false
+    }
+    if (lower.contains("duden.de") && !lower.endsWith(".mp3") && !lower.contains(".mp3?")) {
+        return false
+    }
+
     return lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".ogg") || lower.endsWith(".aac") ||
-           lower.contains("/audio/") || lower.contains("/sound/") || lower.contains("/sounds/") || lower.contains("pronounce") || lower.contains("pronunciation") ||
-           lower.contains("translate_tts") || lower.contains("speech") || lower.contains("voice") || lower.contains(".mp3?") || lower.contains(".wav?") ||
-           lower.contains("speak") || lower.contains("audio") || lower.contains("tts") || lower.contains("sound") || lower.contains("pronun") ||
-           lower.contains("anbricht") || lower.contains("download") || lower.contains("arabisch") || lower.contains("deutsch") ||
-           lower.contains("duden") || lower.contains("dict.cc")
+           lower.contains(".mp3?") || lower.contains(".wav?") || lower.contains("/audio/") || lower.contains("/sound/") || lower.contains("/sounds/") ||
+           lower.contains("translate_tts") || lower.contains("google.com/speech") || lower.contains("google.com/voice") || lower.contains("translate.google")
+}
+
+fun extractWordFromAudioUrl(url: String, text: String): String {
+    val cleanText = text.trim()
+    if (cleanText.isNotEmpty() && cleanText.length < 35 && !cleanText.contains("http") && !cleanText.contains("www") && !cleanText.contains("/")) {
+        return cleanText
+    }
+
+    try {
+        val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
+        
+        // Handle Google Translate TTS
+        if (decodedUrl.contains("translate_tts") || decodedUrl.contains("translate.google")) {
+            val uri = android.net.Uri.parse(url)
+            val qParam = uri.getQueryParameter("q")
+            if (!qParam.isNullOrEmpty()) {
+                return qParam
+            }
+        }
+        
+        // Handle direct file paths
+        val uri = android.net.Uri.parse(url)
+        val path = uri.path ?: ""
+        val lastSegment = path.substringAfterLast("/")
+        if (lastSegment.isNotEmpty()) {
+            val filenameWithoutExt = lastSegment.substringBeforeLast(".")
+            if (filenameWithoutExt.isNotEmpty()) {
+                return filenameWithoutExt.replace("_", " ").replace("-", " ").trim()
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("WordExtractor", "Error extracting word: ${e.message}")
+    }
+
+    return "نطق"
 }
 
 @Composable
